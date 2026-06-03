@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SuperMarioYL/ctxprof/internal/schema/allocation_v1.json",
+  "title": "ctxprof allocation v1",
+  "description": "Structured attribution of a coding-agent session's context-window consumption. Emitted by `ctxprof attribute --json` and `ctxprof --json`. Designed to be harness-agnostic so other tools (Codex, Aider, Cursor) can emit it without depending on the Claude Code JSONL format. Honesty contract: total_tokens and window_max are exact ground-truth values read from the harness; every bucket count is a calibrated estimate — the per-block tokenizer is a local heuristic, and per-turn block weights are scaled to match the harness-reported per-turn totals so the session-level sum is exact even though per-bucket splits are approximate. The `system` bucket and the MCP-descriptor portion of `mcp` are further approximated from the first turn's cache_creation tokens because they are never serialized into per-block content.",
+  "type": "object",
+  "required": ["schema_version", "session_id", "total_tokens", "window_max", "buckets", "estimated"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "allocation/v1",
+      "description": "Schema identifier. Bump on breaking changes only."
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Opaque session identifier from the harness (e.g. Claude Code's sessionId field). Empty string is allowed when the harness does not emit one."
+    },
+    "total_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Exact sum of all per-turn message.usage totals for the session. Not an estimate. Invariant: equals the sum of every buckets[*].tokens entry."
+    },
+    "window_max": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The harness's nominal context-window size in tokens (e.g. 200000 for Claude Code today). Used only for percentage rendering; never inferred from data."
+    },
+    "estimated": {
+      "type": "boolean",
+      "description": "True whenever any bucket value is a calibrated estimate rather than an exact field read. In v1 this is always true: bucket numbers are derived from a local tokenizer and reconciled to per-turn totals."
+    },
+    "buckets": {
+      "type": "object",
+      "description": "One entry per attribution bucket. Buckets with zero tokens may be omitted. Sum of all bucket.tokens equals total_tokens (the reconciliation invariant).",
+      "additionalProperties": false,
+      "properties": {
+        "system":    { "$ref": "#/$defs/bucket" },
+        "skill":     { "$ref": "#/$defs/bucket" },
+        "mcp":       { "$ref": "#/$defs/bucket" },
+        "file":      { "$ref": "#/$defs/bucket" },
+        "reasoning": { "$ref": "#/$defs/bucket" },
+        "output":    { "$ref": "#/$defs/bucket" }
+      }
+    }
+  },
+  "$defs": {
+    "bucket": {
+      "type": "object",
+      "required": ["tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reconciled token total for this bucket. Calibrated estimate, not a direct field read."
+        },
+        "items": {
+          "type": "array",
+          "description": "Named rows inside the bucket — for example one row per skill name (caveman, code-review), per MCP server (grafana, pencil), or per file path. Optional and may be empty. Items do not have to sum exactly to bucket.tokens (anonymous blocks roll up without being itemized), but no item may exceed the bucket total.",
+          "items": { "$ref": "#/$defs/item" }
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["name", "tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name for the row (skill name, MCP server name, file path, etc.)."
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reconciled token count attributed to this named row."
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "Optional pointer back to the originating block (e.g. turn idx, block index) for tools that want to drill down."
+        }
+      }
+    }
+  }
+}
