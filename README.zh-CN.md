@@ -24,8 +24,21 @@
 
 你打开 Claude Code，挂了上周装好的三四个 skill，连了两个 MCP server，开始干一个真活，结果窗口用到 82% 的时候助手让你新开一个 chat。问题是：你装的那七样东西，到底是谁吃掉了预算？厂商的 meter 只会丢给你一个汇总数字；[JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)（68k★、单日 1,138 颗星）让模型说话像穴居人省 token，[rtk-ai/rtk](https://github.com/rtk-ai/rtk)（58k★）做命令代理省 token —— 两个都是聪明的 workaround，但都不告诉你*钱花在了哪*。另一边 Uber 刚把单座 AI 支出锁在 $1,500/月（[Simon Willison 的 TIL](https://simonwillison.net/2026/Jun/3/uber-caps-usage/)），"上下文里到底装了什么"已经从手艺活变成了财务问题。`ctxprof` 就是缺失的那台观测器：一个静态 Go 二进制，把 Claude Code 的扁平 token 总数拆成六个桶 —— **system / skill / MCP / file / reasoning / output**，让你能决定卸哪个，而不是靠猜。
 
+## <img src="https://api.iconify.design/tabler:topology-star-3.svg?color=%230071E3&width=24" height="22" align="absmiddle" alt=""> 架构
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/atlas-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./assets/atlas-light.svg">
+    <img src="./assets/atlas-light.svg" width="880" alt="架构：一份已完成的 Claude Code JSONL 会话流经 parser，对每个 block 做 chars/4 估算，再按真实的逐 turn message.usage 总数做对齐，归类进六个桶，最后渲染成火焰树或 allocation_v1.json">
+  </picture>
+</p>
+
+一份已完成的 Claude Code JSONL 会话流经四个纯函数包 —— **parser → estimate → attribute → render** —— 全程零网络调用、链路里没有任何模型。源数据带有真实的逐 turn `message.usage` 总数，但**没有逐 block 的 token 字段**，所以每个 block 先拿到一个本地 `chars/4` 估算值，再由 `attribute` 把这些权重缩放到 turn 的真实总数：会话级总和保持精确，逐桶拆分则成为对齐后的标定估算。每个对齐后的 block 落进**六个桶之一 —— system / skill / mcp / file / reasoning / output**，由 `render` 打印成火焰树或导出为 `allocation_v1.json`。
+
 ## 目录
 
+- [架构](#架构)
 - [你会看到什么](#你会看到什么)
 - [安装](#安装)
 - [30 秒上手](#30-秒上手)
@@ -56,7 +69,13 @@ session 2026-06-04 14:22 — 184,512 / 200,000 tokens (92%)
 └── output        ███░░░░░░░░░░░  20,241  (11.0%)
 ```
 
-> 📼 30 秒演示 gif 会随 v0.1.0 发布版补齐，见 [`assets/README.md`](./assets/README.md)。
+## <img src="https://api.iconify.design/tabler:photo.svg?color=%230071E3&width=24" height="22" align="absmiddle" alt=""> 演示
+
+<p align="center">
+  <img src="assets/demo.gif" width="820" alt="ctxprof 先渲染火焰树，再把 allocation_v1.json 管道给 jq">
+</p>
+
+> 由 CI 通过 [`docs/demo.tape`](./docs/demo.tape)（vhs）渲染 —— 重新录制方式见 [`assets/README.md`](./assets/README.md)。
 
 ## 安装
 

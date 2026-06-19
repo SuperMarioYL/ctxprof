@@ -24,8 +24,21 @@
 
 You opened Claude Code, loaded three or four skills you needed last week, wired a couple of MCP servers, started a real task, and at 82% window utilization the assistant told you to start a new chat. You have no idea which of the seven things you added is responsible. The vendor meter shows one aggregate number; [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) (68k★, 1,138 stars/day) trims the model's output style, and [rtk-ai/rtk](https://github.com/rtk-ai/rtk) (58k★) proxies commands — both clever workarounds, neither tells you *what* you were paying for. Meanwhile Uber just capped per-seat AI spend at $1,500/month ([Simon Willison's TIL](https://simonwillison.net/2026/Jun/3/uber-caps-usage/)), so the question of *what is in your context* is now an accounting one as much as a craft one. `ctxprof` is the missing observer: a single static binary that turns Claude Code's flat token total into a structured allocation across **six buckets — system / skill / MCP / file / reasoning / output —** so you can decide what to unload instead of guessing.
 
+## <img src="https://api.iconify.design/tabler:topology-star-3.svg?color=%230071E3&width=24" height="22" align="absmiddle" alt=""> Architecture
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/atlas-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./assets/atlas-light.svg">
+    <img src="./assets/atlas-light.svg" width="880" alt="Architecture: a Claude Code JSONL session streams through the parser, gets per-block chars/4 weight estimates, is reconciled to real per-turn message.usage totals and classified into six buckets, then rendered as a flame tree or allocation_v1.json">
+  </picture>
+</p>
+
+A finished Claude Code JSONL session streams through four pure packages — **parser → estimate → attribute → render** — with no network calls and no model in the loop. The source data carries real per-turn `message.usage` totals but **no per-block token field**, so each block gets a local `chars/4` estimate, then `attribute` scales those weights to match the turn's real total: the session sum stays exact while per-bucket splits become calibrated estimates. Every reconciled block lands in one of **six buckets — system / skill / mcp / file / reasoning / output** — which `render` prints as a flame tree or emits as `allocation_v1.json`.
+
 ## Table of contents
 
+- [Architecture](#architecture)
 - [What you see](#what-you-see)
 - [Install](#install)
 - [Quickstart (30 seconds)](#quickstart-30-seconds)
@@ -56,7 +69,13 @@ session 2026-06-04 14:22 — 184,512 / 200,000 tokens (92%)
 └── output        ███░░░░░░░░░░░  20,241  (11.0%)
 ```
 
-> 📼 30-second demo gif coming with the v0.1.0 release — see [`assets/README.md`](./assets/README.md).
+## <img src="https://api.iconify.design/tabler:photo.svg?color=%230071E3&width=24" height="22" align="absmiddle" alt=""> Demo
+
+<p align="center">
+  <img src="assets/demo.gif" width="820" alt="ctxprof rendering a flame tree and then piping allocation_v1.json to jq">
+</p>
+
+> Rendered in CI by [`docs/demo.tape`](./docs/demo.tape) (vhs) — see [`assets/README.md`](./assets/README.md) for how to re-record it.
 
 ## Install
 

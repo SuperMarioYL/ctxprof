@@ -14,6 +14,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is the build version, injected at release time by GoReleaser via
+// -ldflags "-X main.version=...". It defaults to a dev marker for local builds.
+var version = "v0.1.0-dev"
+
 var (
 	flagJSON      bool
 	flagSession   string
@@ -174,7 +178,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print ctxprof version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), "ctxprof v0.1.0-dev")
+			fmt.Fprintln(cmd.OutOrStdout(), "ctxprof "+version)
 		},
 	}
 }
