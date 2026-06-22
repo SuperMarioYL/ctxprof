@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	runewidth "github.com/mattn/go-runewidth"
 	"github.com/SuperMarioYL/ctxprof/internal/parser"
 )
 
@@ -80,28 +81,30 @@ type TreeOptions struct {
 func Tree(w io.Writer, alloc parser.Allocation, opts TreeOptions) error {
 	st := styler{useColor: !opts.NoColor}
 
-	// TotalTokens is the cumulative sum of every per-turn message.usage total.
-	// On a short session that stayed inside one window it reads naturally as
-	// "% of the 200k window". On a long session it is genuine cumulative
-	// throughput that legitimately exceeds one window (the cached prefix is
-	// re-counted each turn by the harness), so the window-% would mislead —
-	// present it as cumulative instead. Per-bucket rows are always % of total,
-	// which is meaningful either way.
-	if alloc.WindowMax > 0 && alloc.TotalTokens <= alloc.WindowMax {
-		pct := float64(alloc.TotalTokens) / float64(alloc.WindowMax) * 100
-		fmt.Fprintf(w, "session %s — %s / %s tokens (%.0f%% of window)\n",
+	// The headline window-% is driven by WindowOccupancy — the peak single-turn
+	// footprint (input + cache_read + cache_creation) — NOT by the cross-turn
+	// cumulative sum. cache_read re-counts the cached prefix every turn, so a
+	// cumulative sum balloons past the window and would lie about how full the
+	// context actually got (the v0.1 bug). We surface cumulative throughput as
+	// a secondary number. Per-bucket rows below are % of cumulative, which is
+	// where the reconciled bucket tokens live.
+	if alloc.WindowMax > 0 {
+		pct := float64(alloc.WindowOccupancy) / float64(alloc.WindowMax) * 100
+		fmt.Fprintf(w, "session %s — %s / %s tokens (%.0f%% of window, peak single-turn footprint)\n",
 			alloc.SessionID,
-			humanInt(alloc.TotalTokens),
+			humanInt(alloc.WindowOccupancy),
 			humanInt(alloc.WindowMax),
 			pct,
 		)
 	} else {
-		fmt.Fprintf(w, "session %s — %s tokens cumulative (window: %s; spend re-counts the cached prefix each turn)\n",
+		fmt.Fprintf(w, "session %s — %s tokens peak window footprint\n",
 			alloc.SessionID,
-			humanInt(alloc.TotalTokens),
-			humanInt(alloc.WindowMax),
+			humanInt(alloc.WindowOccupancy),
 		)
 	}
+	fmt.Fprintf(w, "  %s tokens cumulative throughput (re-counts the cached prefix each turn; not window occupancy)\n",
+		humanInt(alloc.CumulativeTokens),
+	)
 
 	type row struct {
 		bucket parser.Bucket
@@ -123,16 +126,16 @@ func Tree(w io.Writer, alloc parser.Allocation, opts TreeOptions) error {
 			branch = "└──"
 		}
 
-		bar := makeBar(r.bd.Tokens, alloc.TotalTokens, barWidth)
+		bar := makeBar(r.bd.Tokens, alloc.CumulativeTokens, barWidth)
 		rowPct := 0.0
-		if alloc.TotalTokens > 0 {
-			rowPct = float64(r.bd.Tokens) / float64(alloc.TotalTokens) * 100
+		if alloc.CumulativeTokens > 0 {
+			rowPct = float64(r.bd.Tokens) / float64(alloc.CumulativeTokens) * 100
 		}
 		approx := ""
 		if approxBuckets[r.bucket] {
 			approx = " ~"
 		}
-		label := st.render(fmt.Sprintf("%-10s", bucketLabel[r.bucket]), bucketColor[r.bucket])
+		label := st.render(padRight(bucketLabel[r.bucket], 10), bucketColor[r.bucket])
 		coloredBar := st.render(bar, bucketColor[r.bucket])
 		fmt.Fprintf(w, "%s %s %s  %s  (%.1f%%)%s\n",
 			branch, label, coloredBar,
@@ -160,8 +163,8 @@ func Tree(w io.Writer, alloc parser.Allocation, opts TreeOptions) error {
 			if j == len(items)-1 {
 				ibranch = "└──"
 			}
-			fmt.Fprintf(w, "%s%s %-28s %s\n",
-				prefix, ibranch, truncate(it.Name, 28),
+			fmt.Fprintf(w, "%s%s %s %s\n",
+				prefix, ibranch, padRight(truncate(it.Name, 28), 28),
 				rightAlign(humanInt(it.Tokens), 8),
 			)
 		}
@@ -230,19 +233,44 @@ func humanInt(n int) string {
 	return b.String()
 }
 
+// rightAlign pads s on the left to a target display width. It measures with
+// runewidth so wide runes (CJK = 2 cells) and combining marks align correctly,
+// instead of counting raw bytes (which over-pads multibyte strings).
 func rightAlign(s string, width int) string {
-	if len(s) >= width {
+	w := runewidth.StringWidth(s)
+	if w >= width {
 		return s
 	}
-	return strings.Repeat(" ", width-len(s)) + s
+	return strings.Repeat(" ", width-w) + s
 }
 
-func truncate(s string, width int) string {
-	if len(s) <= width {
+// padRight pads s on the right to a target display width, runewidth-aware.
+// Replaces fmt's "%-Ns" which counts bytes and so misaligns CJK/emoji columns.
+func padRight(s string, width int) string {
+	w := runewidth.StringWidth(s)
+	if w >= width {
 		return s
 	}
-	if width <= 1 {
-		return s[:width]
+	return s + strings.Repeat(" ", width-w)
+}
+
+// truncate shortens s to at most width display columns, appending an ellipsis
+// when it cuts. It is rune- and display-width-aware: it never slices through a
+// multibyte rune (the v0.1 byte-index bug corrupted CJK/emoji item names into
+// invalid UTF-8) and it accounts for wide runes consuming two cells.
+func truncate(s string, width int) string {
+	if width <= 0 {
+		return ""
 	}
-	return s[:width-1] + "…"
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+	if width == 1 {
+		// No room for content plus an ellipsis; emit the ellipsis alone.
+		return "…"
+	}
+	// Reserve one cell for the ellipsis, then take whole runes up to width-1.
+	const ell = "…"
+	limit := width - runewidth.StringWidth(ell)
+	return runewidth.Truncate(s, limit, "") + ell
 }

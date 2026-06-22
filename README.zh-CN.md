@@ -105,10 +105,11 @@ ctxprof --json | jq '.buckets'
 
 ```json
 {
-  "schema": "allocation_v1",
+  "schema_version": "allocation/v1",
   "session_id": "abc123",
   "window_max": 200000,
-  "total_tokens": 184512,
+  "window_occupancy": 184512,
+  "cumulative_tokens": 312880,
   "estimated": true,
   "buckets": {
     "skill":     { "tokens": 47210, "items": [{"name":"caveman","tokens":19840}] },
@@ -121,13 +122,15 @@ ctxprof --json | jq '.buckets'
 }
 ```
 
+> 从 v0.2 起，窗口占用百分比按 `window_occupancy`（单轮峰值占用）计算，而不是跨轮累加（累加会把缓存前缀每轮重复计数）。`cumulative_tokens` 作为真实吞吐量单独列出。
+
 </details>
 
 ## 它是怎么工作的
 
 Claude Code 的 JSONL 会话日志给你的是**每轮真实的总数**（`message.usage.input_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens` / `output_tokens`），但**没有每个 content block 自己的 token 字段**。所以桶的数字读不出来，只能先估再校准。ctxprof 每次会话做三件事：
 
-1. **估算** —— 对每个 content block 本地分词（v0.1 用 `chars/4` 启发式，v0.2 留好真 BPE tokenizer 的接口）。
+1. **估算** —— 对每个 content block 本地分词（v0.2 起用一个真正的、内置的字节级 BPE tokenizer，取代 v0.1 的 `chars/4` 启发式）。
 2. **校准** —— 对每个 assistant 轮次，把这一轮所有估算权重等比缩放，使之精确等于这一轮 `message.usage` 的真实总和。会话级总数因此是精确的，桶级拆分是被校准过的估算。
 3. **归类** —— 把校准后的每块权重，按一套**确定性的、不用 LLM 在 loop 里的**分类器折进六个桶之一：
 

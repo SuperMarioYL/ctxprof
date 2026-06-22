@@ -13,17 +13,38 @@ import (
 // invariant holds exactly: sum of all bucket tokens == sum of all per-turn
 // message.usage totals == Allocation.TotalTokens.
 //
-// The first assistant turn's cache_creation_input_tokens is split off into
-// the system bucket before reconciliation, on the theory that those bytes
-// represent the harness-prepended system prompt and initial tool descriptors
-// — content that is never written into message.content but still consumes
-// the window. That portion is therefore approximate; the rest is calibrated.
+// The first assistant turn's cache_creation_input_tokens is split off before
+// reconciliation, on the theory that those bytes represent the harness-prepended
+// system prompt + CLAUDE.md + MCP/tool descriptors — content that is never
+// written into message.content but still consumes the window. As of v0.2 that
+// seed is apportioned across the system and mcp buckets via splitFirstTurnSeed
+// (so the MCP descriptor catalog no longer disappears entirely into system);
+// both halves are approximate, the rest is calibrated.
 //
 // User turns carry no message.usage in the JSONL, so they do not add to the
 // session total. The bytes a user turn contributes to context end up counted
 // inside the *next* assistant turn's input_tokens, which is where they show
 // up in the reconciled buckets.
+// mcpSplitFloor / mcpSplitCap bound the documented heuristic that splits the
+// first turn's cache_creation between the system prompt and the MCP/tool
+// descriptors bundled into the same cached prefix (see splitFirstTurnSeed).
+const (
+	mcpSplitFloor = 0.0
+	mcpSplitCap   = 0.75
+)
+
+// DefaultWindowMax is the clamp target for an invalid (<=0) window size, equal
+// to Claude Code's current 200k context. Exported so the CLI and tests agree.
+const DefaultWindowMax = 200_000
+
 func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
+	// Guard the schema's window_max minimum:1. A zero/negative window is
+	// meaningless for the headline percentage and would emit an
+	// allocation_v1-invalid document, so clamp it here — the last gate before
+	// any Allocation is produced, regardless of caller.
+	if windowMax <= 0 {
+		windowMax = DefaultWindowMax
+	}
 	alloc := parser.Allocation{
 		WindowMax: windowMax,
 		Buckets:   map[parser.Bucket]parser.BucketBreakdown{},
@@ -59,7 +80,15 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 			continue
 		}
 		turnTotal := turn.Usage.Total()
-		alloc.TotalTokens += turnTotal
+		alloc.CumulativeTokens += turnTotal
+
+		// Track the peak single-turn window footprint. This — not the
+		// cross-turn cumulative sum — drives the headline window-%, because
+		// cache_read re-counts the cached prefix every turn (fix:
+		// cache-read-double-count).
+		if fp := turn.Usage.WindowFootprint(); fp > alloc.WindowOccupancy {
+			alloc.WindowOccupancy = fp
+		}
 
 		available := turnTotal
 		if !systemSeeded {
@@ -67,7 +96,9 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 			if seed > available {
 				seed = available
 			}
-			add(parser.BucketSystem, "", seed)
+			sysSeed, mcpSeed := splitFirstTurnSeed(seed, turn.Blocks)
+			add(parser.BucketSystem, "", sysSeed)
+			add(parser.BucketMCP, "", mcpSeed)
 			available -= seed
 			systemSeeded = true
 		}
@@ -134,4 +165,51 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 		alloc.Buckets[bucket] = bd
 	}
 	return alloc
+}
+
+// splitFirstTurnSeed apportions the first turn's cache_creation_input_tokens
+// between the system bucket and the mcp bucket.
+//
+// The first cached prefix bundles the harness system prompt + CLAUDE.md + the
+// MCP/tool descriptor catalog + the first user message — none of which are
+// serialized into per-block content, so we cannot read the split. We
+// approximate it (both halves are flagged approximate via render.approxBuckets)
+// with a documented, deterministic heuristic:
+//
+//	fraction-to-mcp = clamp( mcpToolUseBlocks / totalToolUseBlocks , 0 , 0.75 )
+//
+// i.e. the more of the turn's tool_use blocks are MCP calls, the larger the
+// share of the cached descriptor prefix we attribute to MCP, capped at 0.75 so
+// the system prompt always keeps a plurality. When the turn has no tool_use
+// blocks we cannot tell, so the whole seed stays in system (mcp = 0), matching
+// pre-v0.2 behavior for MCP-free sessions.
+func splitFirstTurnSeed(seed int, blocks []parser.Block) (sys, mcp int) {
+	if seed <= 0 {
+		return 0, 0
+	}
+	totalTools, mcpTools := 0, 0
+	for _, b := range blocks {
+		if b.Type != parser.BlockToolUse {
+			continue
+		}
+		totalTools++
+		if ClassifyBlock(b) == parser.BucketMCP {
+			mcpTools++
+		}
+	}
+	if totalTools == 0 || mcpTools == 0 {
+		return seed, 0
+	}
+	frac := float64(mcpTools) / float64(totalTools)
+	if frac < mcpSplitFloor {
+		frac = mcpSplitFloor
+	}
+	if frac > mcpSplitCap {
+		frac = mcpSplitCap
+	}
+	mcp = int(float64(seed) * frac)
+	if mcp > seed {
+		mcp = seed
+	}
+	return seed - mcp, mcp
 }

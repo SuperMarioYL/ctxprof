@@ -40,8 +40,22 @@ type Usage struct {
 }
 
 // Total is the sum of all token fields — the ground-truth per-turn count.
+// It is cumulative throughput, not window occupancy: cache_read is the cached
+// prefix re-counted every turn, so summing Total() across turns counts the same
+// window many times (see WindowFootprint and Allocation.WindowOccupancy).
 func (u Usage) Total() int {
 	return u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+}
+
+// WindowFootprint is this turn's instantaneous context-window occupancy: the
+// input the model actually saw on this turn (fresh input + cached-prefix
+// re-read + newly-cached bytes). It excludes output_tokens, which are generated
+// rather than occupying the input window. The peak WindowFootprint across a
+// session is the high-water mark of the window — the honest basis for the
+// "X / 200,000 (Y%)" headline, which must not be driven by a cross-turn sum of
+// Total() (that double-counts the cached prefix N times).
+func (u Usage) WindowFootprint() int {
+	return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 }
 
 // Block is one flattened content block inside a turn. The JSONL has no
@@ -93,13 +107,29 @@ type BucketBreakdown struct {
 // Allocation is the schema-published attribution map for a session.
 // It corresponds to internal/schema/allocation_v1.json (added in m2).
 //
-// Honesty contract: TotalTokens and WindowMax are exact (read from
-// message.usage); every BucketBreakdown.Tokens is a calibrated estimate.
-// Estimated is always true in v0.1.
+// Honesty contract: CumulativeTokens, WindowOccupancy and WindowMax are exact
+// (read from message.usage); every BucketBreakdown.Tokens is a calibrated
+// estimate. Estimated is always true.
+//
+// Window-% semantics (fixed in v0.2): the headline "X / WindowMax (Y%)" is
+// driven by WindowOccupancy — the peak single-turn WindowFootprint — NOT by
+// CumulativeTokens. cache_read is the cached prefix re-counted every turn, so
+// summing it across turns inflates the headline (the same window counted N
+// times). CumulativeTokens remains available as genuine end-to-end throughput.
 type Allocation struct {
-	SessionID   string                     `json:"session_id"`
-	TotalTokens int                        `json:"total_tokens"`
-	WindowMax   int                        `json:"window_max"`
-	Buckets     map[Bucket]BucketBreakdown `json:"buckets"`
-	Estimated   bool                       `json:"estimated"`
+	SessionID string `json:"session_id"`
+
+	// CumulativeTokens is the sum of every assistant turn's message.usage
+	// Total() — genuine throughput over the whole session. It legitimately
+	// exceeds WindowMax on long sessions and must NOT drive the window-%.
+	// (Renamed from total_tokens in v0.2; see CHANGELOG.)
+	CumulativeTokens int `json:"cumulative_tokens"`
+
+	// WindowOccupancy is the peak single-turn WindowFootprint — the high-water
+	// mark of context-window usage and the basis for the headline window-%.
+	WindowOccupancy int `json:"window_occupancy"`
+
+	WindowMax int                        `json:"window_max"`
+	Buckets   map[Bucket]BucketBreakdown `json:"buckets"`
+	Estimated bool                       `json:"estimated"`
 }

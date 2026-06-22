@@ -103,10 +103,11 @@ ctxprof --json | jq '.buckets'
 
 ```json
 {
-  "schema": "allocation_v1",
+  "schema_version": "allocation/v1",
   "session_id": "abc123",
   "window_max": 200000,
-  "total_tokens": 184512,
+  "window_occupancy": 184512,
+  "cumulative_tokens": 312880,
   "estimated": true,
   "buckets": {
     "skill":     { "tokens": 47210, "items": [{"name":"caveman","tokens":19840}] },
@@ -119,13 +120,15 @@ ctxprof --json | jq '.buckets'
 }
 ```
 
+> Since v0.2 the window-% headline is computed from `window_occupancy` — the peak single-turn footprint — not from a cross-turn cumulative sum (which re-counts the cached prefix each turn). `cumulative_tokens` is reported separately as genuine throughput.
+
 </details>
 
 ## How it works
 
 The Claude Code JSONL session log gives you **real per-turn totals** (`message.usage.input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `output_tokens`) but **no per-content-block token field**. So bucket numbers cannot be read; they have to be estimated and then reconciled. ctxprof does three things per session:
 
-1. **Estimate** — tokenize each content block locally (`chars/4` heuristic in v0.1, with a slot for a real BPE tokenizer in v0.2).
+1. **Estimate** — tokenize each content block locally (a real vendored byte-level BPE tokenizer since v0.2, replacing the v0.1 `chars/4` heuristic).
 2. **Reconcile** — for each assistant turn, scale that turn's estimated block weights so they sum to the turn's real `message.usage` total. The session-level sum is therefore exact; per-bucket splits are calibrated estimates, not field reads.
 3. **Attribute** — fold each reconciled block weight into one of six buckets by a deterministic, no-model-in-the-loop classifier:
 

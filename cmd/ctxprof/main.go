@@ -74,6 +74,19 @@ type allocationJSON struct {
 	parser.Allocation
 }
 
+// resolveWindowMax warns when --window-max is invalid so the user sees why the
+// number changed. attribute.Attribute performs the actual clamp (the last gate
+// before any Allocation is built), keeping the emitted allocation_v1.json
+// schema-valid even if some other caller skips this warning.
+func resolveWindowMax(cmd *cobra.Command, w int) int {
+	if w > 0 {
+		return w
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(),
+		"warning: --window-max %d is invalid (must be > 0); using %d\n", w, attribute.DefaultWindowMax)
+	return attribute.DefaultWindowMax
+}
+
 // profile runs the full pipeline: parse the session, attribute + reconcile its
 // blocks into buckets, then render either the flame tree or allocation_v1.json.
 func profile(cmd *cobra.Command, path string) error {
@@ -81,7 +94,8 @@ func profile(cmd *cobra.Command, path string) error {
 	if err != nil {
 		return err
 	}
-	alloc := attribute.Attribute(sess, flagWindowMax)
+	windowMax := resolveWindowMax(cmd, flagWindowMax)
+	alloc := attribute.Attribute(sess, windowMax)
 	out := cmd.OutOrStdout()
 	if flagJSON {
 		enc := json.NewEncoder(out)
