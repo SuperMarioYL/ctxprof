@@ -1,32 +1,58 @@
-package estimate_test
+package estimate
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/SuperMarioYL/ctxprof/internal/estimate"
-)
+// As of v0.2 Tokens delegates to the vendored BPE tokenizer, so it no longer
+// follows the chars/4 formula. These tests pin the contract that survives the
+// swap: empty -> 0, non-empty -> >= 1, and agreement with CountBPE.
 
-func TestTokens(t *testing.T) {
+func TestTokens_EmptyIsZero(t *testing.T) {
+	if got := Tokens(""); got != 0 {
+		t.Errorf("Tokens(\"\") = %d, want 0", got)
+	}
+}
+
+func TestTokens_NonEmptyAtLeastOne(t *testing.T) {
+	for _, s := range []string{"a", "abc", "上", "ctxprof", "hello world"} {
+		if got := Tokens(s); got < 1 {
+			t.Errorf("Tokens(%q) = %d, want >= 1", s, got)
+		}
+	}
+}
+
+func TestTokens_MatchesBPE(t *testing.T) {
+	for _, s := range []string{"hello world", "the quick brown fox", "input_tokens", "上下文窗口分析工具"} {
+		want, err := CountBPE(s)
+		if err != nil {
+			t.Fatalf("CountBPE(%q): %v", s, err)
+		}
+		if want < 1 {
+			want = 1
+		}
+		if got := Tokens(s); got != want {
+			t.Errorf("Tokens(%q) = %d, want %d (== CountBPE)", s, got, want)
+		}
+	}
+}
+
+// charsOver4 is the degraded fallback; it must still behave like the v0.1
+// rune-based heuristic.
+func TestCharsOver4Fallback(t *testing.T) {
 	cases := []struct {
-		name string
 		in   string
 		want int
 	}{
-		{"empty", "", 0},
-		{"single char rounds up to 1", "a", 1},
-		{"three chars still 1", "abc", 1},
-		{"four chars → 1", "abcd", 1},
-		{"eight chars → 2", "abcdefgh", 2},
-		{"sixteen chars → 4", "abcdefghijklmnop", 4},
-		{"counts runes not bytes (CJK)", "上下文窗口", 1}, // 5 runes → 5/4 = 1
-		{"longer CJK", "上下文窗口分析工具", 2},          // 9 runes → 9/4 = 2
+		{"a", 1},
+		{"abc", 1},
+		{"abcd", 1},
+		{"abcdefgh", 2},
+		{"abcdefghijklmnop", 4},
+		{"上下文窗口", 1},
+		{"上下文窗口分析工具", 2},
 	}
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := estimate.Tokens(c.in)
-			if got != c.want {
-				t.Errorf("Tokens(%q) = %d, want %d", c.in, got, c.want)
-			}
-		})
+		if got := charsOver4(c.in); got != c.want {
+			t.Errorf("charsOver4(%q) = %d, want %d", c.in, got, c.want)
+		}
 	}
 }
