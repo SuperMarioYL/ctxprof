@@ -98,7 +98,18 @@ ctxprof --session ~/.claude/projects/myproj/abc123.jsonl
 
 # 3. 把结构化结果管给其他工具
 ctxprof --json | jq '.buckets'
+
+# 4. 直接看该砍什么——跨所有桶、最大的单个占用项（只读）
+ctxprof --cut-candidates 10
+
+# 5. 看预算随时间的漂移——多个会话间每个桶的变化
+ctxprof trend --since 7d
+ctxprof trend session-a.jsonl session-b.jsonl session-c.jsonl --json
 ```
+
+> **`--cut-candidates N`** 在 tree 之后追加一个排序列表：跨所有桶、最大的 N 个具名占用项（某个 skill、某个 MCP server、某个文件路径），并标注它各自占窗口的比例——让你知道该砍哪个。它**只做诊断**：ctxprof 永远不会去编辑或改写一个 session。
+>
+> **`ctxprof trend`** 一次分析多个会话，按时间（旧→新）打印每个桶占用的变化，让悄悄上涨的 system/mcp/file 预算一眼可见。可传具体路径，或用 `--since 7d` 从 `~/.claude/projects/` 里挑最近的会话。`--json` 产出一个有序的 `allocation_v1` 数组。
 
 <details>
 <summary><code>--json</code> 输出示例</summary>
@@ -194,10 +205,11 @@ JSON 结构本身就是护城河。如果有一天 Codex / Aider / Cursor 也想
 - [x] **m1 — parse_session.** 流式读 JSONL，按轮次产出真实 `message.usage` 总数 + 类型化 content blocks + 本地估算权重。
 - [x] **m2 — attribute_buckets.** 六桶分类器 + 每轮校准；会话级总数精确，桶级拆分是被校准过的估算。
 - [x] **m3 — render_treemap.** 真彩色终端 flame-graph tree，以及 `--json` 产出 `allocation_v1.json`。
-- [ ] **v0.2 — BPE tokenizer.** 用真正的 Claude 系 tokenizer 替掉 `chars/4`，让校准前的估算更紧。
-- [ ] **v0.2 — 第二个 harness 解析器.** Codex 或 Aider，看哪边维护者先点头。
-- [ ] **v0.3 — 多会话 diff.** "这次 run 比上周多/少了什么？"
-- [ ] **v0.3+ — CI 模式.** 上下文超预算时 fail 构建。靠真实团队需求驱动，不预先做。
+- [x] **v0.2 — BPE tokenizer.** 用真正的、内置的字节级 BPE tokenizer 替掉 `chars/4`，让校准前的估算更紧。
+- [x] **v0.3 — 多会话 trend.** `ctxprof trend` 展示多个会话间每个桶的预算漂移——"这次 run 比上周多/少了什么？"
+- [x] **v0.3 — cut-candidates.** `--cut-candidates N` 跨所有桶把最大的单个占用项排序出来，让你知道该砍什么（只读诊断，绝不自动改写）。
+- [ ] **v0.x — 第二个 harness 解析器.** Codex 或 Aider，看哪边维护者先点头。
+- [ ] **v0.x — CI 模式.** 上下文超预算时 fail 构建。靠真实团队需求驱动，不预先做。
 
 明确**不在** v0.1 范围：Web UI、实时 tail、token→人民币换算、自动给削减建议、托管 SaaS。完整 out-of-scope 列表见 MVP plan §6。
 

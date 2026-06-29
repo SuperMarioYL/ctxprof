@@ -5,6 +5,42 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-06-30
+
+Scope-expansion pass. v0.2 closed out the accuracy backlog, so v0.3 lifts two
+features that were explicitly deferred in earlier `out_of_scope` lines and fixes a
+CLI flag-inheritance gap. A single snapshot now also answers "is my budget creeping
+up?" and "what specifically should I cut?".
+
+### Added — multi-session trend
+- `ctxprof trend <a.jsonl> <b.jsonl> …` (or `ctxprof trend --since 7d` over
+  `~/.claude/projects/`) profiles several sessions through the existing
+  parse→attribute pipeline and prints a compact terminal table of how each bucket's
+  occupancy and share moves across them (oldest→newest), with a `Δ first→last`
+  column. `--json` emits an ordered array of `allocation_v1` objects (schema
+  unchanged). Read-only and terminal-only — no graphs, no TUI. New
+  `internal/render/trend.go` (+ `trend_test.go`); lifts the v0.2 "Multi-session
+  diff / trend graphs — single-session snapshots only" out_of_scope line.
+
+### Added — cut-candidates
+- `--cut-candidates N` appends a ranked list of the N largest single named
+  consumers across every bucket (a skill, an MCP server, a file path), each with
+  its share of the peak window, so you see exactly what to trim. It is **diagnosis
+  only** — ctxprof still never edits or rewrites a session. Also surfaced as an
+  additive, omit-empty `cut_candidates` array under `--json` (a plain `--json` run
+  without the flag still validates against `allocation_v1`). New
+  `internal/attribute/topconsumers.go` (+ `topconsumers_test.go`), a pure
+  cross-bucket merge+rank over the existing per-bucket `Items`.
+
+### Fixed
+- **`attribute` subcommand now honors `--window-max` and `--no-color`.** The root
+  registered those (and `--session`) as **local** flags, so the `attribute`
+  subcommand — which calls the same `profile()` that reads them — rejected
+  `ctxprof attribute s.jsonl --window-max 100000` with "unknown flag" and silently
+  ignored `--no-color`, an inconsistent CLI surface vs the root path. They are now
+  root **persistent** flags, inherited by every subcommand. Regression-covered by
+  the new `cmd/ctxprof/main_test.go`.
+
 ## [0.2.0] — 2026-06-23
 
 Accuracy pass. The v0.1 numbers reconciled correctly at the session level, but

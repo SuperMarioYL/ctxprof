@@ -96,7 +96,18 @@ ctxprof --session ~/.claude/projects/myproj/abc123.jsonl
 
 # 3. Pipe structured allocation to another tool
 ctxprof --json | jq '.buckets'
+
+# 4. See exactly what to cut — the largest single consumers across every bucket (read-only)
+ctxprof --cut-candidates 10
+
+# 5. See your budget DRIFT over time — per-bucket movement across several sessions
+ctxprof trend --since 7d
+ctxprof trend session-a.jsonl session-b.jsonl session-c.jsonl --json
 ```
+
+> **`--cut-candidates N`** appends a ranked list of the N largest named consumers (a skill, an MCP server, a file path) with each one's share of the window — so you know what to trim. It is **diagnosis only**: ctxprof never edits or rewrites a session.
+>
+> **`ctxprof trend`** profiles several sessions and prints how each bucket's occupancy moves across them (oldest→newest), so creeping system/mcp/file budget is visible at a glance. Pass explicit paths or `--since 7d` to pick recent sessions under `~/.claude/projects/`. `--json` emits an ordered array of `allocation_v1` objects.
 
 <details>
 <summary>Sample <code>--json</code> output</summary>
@@ -192,12 +203,13 @@ PRs that add a second harness's emitter are explicitly welcome — that's how th
 - [x] **m1 — parse_session.** Stream the JSONL and emit per-turn records carrying the real `message.usage` totals plus typed content blocks with locally-estimated weights.
 - [x] **m2 — attribute_buckets.** Six-bucket classifier + per-turn reconciliation; session-level sum is exact, per-bucket splits are calibrated estimates.
 - [x] **m3 — render_treemap.** Flame-graph-style tree to a true-color terminal, plus `--json` emitting `allocation_v1.json`.
-- [ ] **v0.2 — BPE tokenizer.** Replace `chars/4` with a real Claude-family tokenizer for tighter pre-reconciliation estimates.
-- [ ] **v0.2 — second-harness parser.** Codex or Aider, depending on which OSS maintainer says yes first.
-- [ ] **v0.3 — multi-session diff.** "What changed between this run and last week's?"
-- [ ] **v0.3+ — CI mode.** Fail a build if the context allocation exceeds a budget. Driven by inbound team-plan demand, not built speculatively.
+- [x] **v0.2 — BPE tokenizer.** Replaced `chars/4` with a real vendored byte-level BPE tokenizer for tighter pre-reconciliation estimates.
+- [x] **v0.3 — multi-session trend.** `ctxprof trend` shows per-bucket budget drift across several sessions — "what changed between this run and last week's?"
+- [x] **v0.3 — cut-candidates.** `--cut-candidates N` ranks the largest single consumers across every bucket so you see what to trim (read-only diagnosis, never an automated edit).
+- [ ] **v0.x — second-harness parser.** Codex or Aider, depending on which OSS maintainer says yes first.
+- [ ] **v0.x — CI mode.** Fail a build if the context allocation exceeds a budget. Driven by inbound team-plan demand, not built speculatively.
 
-Explicitly **not** on the roadmap for v0.1: web UI, real-time tail mode, cost-in-dollars conversion, auto-suggestions for token cuts, hosted SaaS. See [§6 of the MVP plan](#) if you want the full out-of-scope list.
+Explicitly **not** on the roadmap: web UI, real-time tail mode, cost-in-dollars conversion, auto-edit/auto-rewrite of a session (cut-candidates only *diagnoses*), hosted SaaS. See [§6 of the MVP plan](#) if you want the full out-of-scope list.
 
 ## Kill criteria (honesty section)
 
