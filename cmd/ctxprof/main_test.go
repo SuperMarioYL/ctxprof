@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeSession drops a minimal two-turn Claude Code JSONL file and returns its path.
@@ -30,6 +31,7 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 	// Reset globals between runs so flag state from a prior invocation never leaks.
 	flagJSON, flagSession, flagNoColor, flagWindowMax, flagCutCandidates, flagTrendSince =
 		false, "", false, 200_000, 0, ""
+	flagCompareTopItems = 10
 	cmd := newRootCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -113,5 +115,137 @@ func TestTrendTwoSessions(t *testing.T) {
 	}
 	if !strings.Contains(out, "bucket") || !strings.Contains(out, "Δ first→last") {
 		t.Errorf("trend table missing header:\n%s", out)
+	}
+}
+
+// touchMtime sets a file's modification time so ordering-by-mtime is testable.
+func touchMtime(t *testing.T, path string, mod time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, mod, mod); err != nil {
+		t.Fatalf("chtimes %s: %v", path, err)
+	}
+}
+
+// TestSortPathsByMtime is the direct regression test for fix-trend-explicit-args-unordered:
+// explicit trend path args (including a lexically-expanded shell glob) must be ordered
+// oldest→newest by mtime, NOT taken in argv order. Passing paths newest-first must come
+// back oldest-first.
+func TestSortPathsByMtime(t *testing.T) {
+	dir := t.TempDir()
+	older := filepath.Join(dir, "z-older.jsonl") // lexically LAST, but oldest mtime
+	newer := filepath.Join(dir, "a-newer.jsonl") // lexically FIRST, but newest mtime
+	for _, p := range []string{older, newer} {
+		if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	base := time.Now().Add(-time.Hour)
+	touchMtime(t, older, base)
+	touchMtime(t, newer, base.Add(30*time.Minute))
+
+	// Pass NEWEST first (the wrong order the bug shipped verbatim).
+	got := sortPathsByMtime([]string{newer, older})
+	if len(got) != 2 || got[0] != older || got[1] != newer {
+		t.Fatalf("expected oldest→newest [%s %s], got %v", older, newer, got)
+	}
+
+	// A lexical glob order (a-newer before z-older) must ALSO come back mtime-ordered,
+	// not lexical — this is the `ctxprof trend *.jsonl` case.
+	glob := sortPathsByMtime([]string{newer, older}) // shell would hand these lexically
+	if glob[0] != older {
+		t.Errorf("lexical glob order must be re-sorted by mtime; got first=%s want %s", glob[0], older)
+	}
+}
+
+// TestTrendOrdersExplicitArgsByMtime is the end-to-end guard: `ctxprof trend new old`
+// (out of order) must render the Δ column with the sign the mtime order implies, not the
+// argv order. The older session has a smaller skill bucket; passing newer-first must still
+// produce a POSITIVE first→last skill delta because trend re-sorts to oldest→newest.
+func TestTrendOrdersExplicitArgsByMtime(t *testing.T) {
+	dir := t.TempDir()
+	// Older session: small assistant turn (fewer tokens).
+	oldP := filepath.Join(dir, "old.jsonl")
+	if err := os.WriteFile(oldP, []byte(
+		`{"sessionId":"old","message":{"role":"assistant","usage":{"input_tokens":10,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","name":"Skill","input":{"command":"caveman"}}]}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Newer session: larger assistant turn (more tokens in the same skill).
+	newP := filepath.Join(dir, "new.jsonl")
+	if err := os.WriteFile(newP, []byte(
+		`{"sessionId":"new","message":{"role":"assistant","usage":{"input_tokens":5000,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","name":"Skill","input":{"command":"caveman"}}]}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Add(-time.Hour)
+	touchMtime(t, oldP, base)
+	touchMtime(t, newP, base.Add(30*time.Minute))
+
+	// Pass NEWEST first — the exact input that used to render a backward axis.
+	out, err := runCmd(t, "trend", newP, oldP, "--no-color")
+	if err != nil {
+		t.Fatalf("trend failed: %v\n%s", err, out)
+	}
+	// Oldest→newest ordering means the skill grew 10 → 5,000, so the Δ must be POSITIVE.
+	if !strings.Contains(out, "+4,990") {
+		t.Errorf("trend should order oldest→newest and show a positive skill Δ (+4,990), got:\n%s", out)
+	}
+	if strings.Contains(out, "-4,990") {
+		t.Errorf("trend rendered a backward (negative) Δ despite newer-first args — ordering not applied:\n%s", out)
+	}
+}
+
+// TestCompareTwoSessions runs the compare subcommand end-to-end over two fixtures and
+// asserts the per-bucket table + read-only contract render.
+func TestCompareTwoSessions(t *testing.T) {
+	dir := t.TempDir()
+	oldP := filepath.Join(dir, "old.jsonl")
+	newP := filepath.Join(dir, "new.jsonl")
+	if err := os.WriteFile(oldP, []byte(
+		`{"sessionId":"old","message":{"role":"assistant","usage":{"input_tokens":1000,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","name":"Skill","input":{"command":"caveman"}}]}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newP, []byte(
+		`{"sessionId":"new","message":{"role":"assistant","usage":{"input_tokens":4000,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","name":"Skill","input":{"command":"caveman"}}]}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCmd(t, "compare", oldP, newP, "--no-color")
+	if err != nil {
+		t.Fatalf("compare failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "compare") || !strings.Contains(out, "Δ = new − old") {
+		t.Errorf("compare header missing:\n%s", out)
+	}
+	// skill grew 1000 → 4000, Δ +3,000.
+	if !strings.Contains(out, "+3,000") {
+		t.Errorf("compare missing skill Δ +3,000:\n%s", out)
+	}
+	if !strings.Contains(out, "diagnosis only") {
+		t.Errorf("compare must state diagnosis only:\n%s", out)
+	}
+}
+
+// TestCompareNeedsExactlyTwo confirms the compare subcommand rejects other arg counts.
+func TestCompareNeedsExactlyTwo(t *testing.T) {
+	sess := writeSession(t)
+	if _, err := runCmd(t, "compare", sess, "--no-color"); err == nil {
+		t.Error("compare with one session should error")
+	}
+}
+
+// TestCompareJSON confirms --json emits both allocations plus bucket_deltas.
+func TestCompareJSON(t *testing.T) {
+	sess := writeSession(t)
+	other := writeSession(t)
+	out, err := runCmd(t, "compare", sess, other, "--json", "--no-color")
+	if err != nil {
+		t.Fatalf("compare --json failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{`"schema_version": "compare/v1"`, `"bucket_deltas"`, `"old"`, `"new"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("compare --json missing %q:\n%s", want, out)
+		}
 	}
 }

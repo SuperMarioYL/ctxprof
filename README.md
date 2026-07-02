@@ -103,11 +103,17 @@ ctxprof --cut-candidates 10
 # 5. See your budget DRIFT over time — per-bucket movement across several sessions
 ctxprof trend --since 7d
 ctxprof trend session-a.jsonl session-b.jsonl session-c.jsonl --json
+
+# 6. Diff exactly two sessions — what changed between this run and the last one?
+ctxprof compare old.jsonl new.jsonl
+ctxprof compare old.jsonl new.jsonl --json | jq '.bucket_deltas'
 ```
 
 > **`--cut-candidates N`** appends a ranked list of the N largest named consumers (a skill, an MCP server, a file path) with each one's share of the window — so you know what to trim. It is **diagnosis only**: ctxprof never edits or rewrites a session.
 >
-> **`ctxprof trend`** profiles several sessions and prints how each bucket's occupancy moves across them (oldest→newest), so creeping system/mcp/file budget is visible at a glance. Pass explicit paths or `--since 7d` to pick recent sessions under `~/.claude/projects/`. `--json` emits an ordered array of `allocation_v1` objects.
+> **`ctxprof trend`** profiles several sessions and prints how each bucket's occupancy moves across them (oldest→newest), so creeping system/mcp/file budget is visible at a glance. Pass explicit paths or `--since 7d` to pick recent sessions under `~/.claude/projects/`. Explicit paths are ordered oldest→newest by file mtime, so a shell glob like `ctxprof trend *.jsonl` reads the right way round. `--json` emits an ordered array of `allocation_v1` objects.
+>
+> **`ctxprof compare`** diffs *exactly two* sessions: for each bucket it shows both sides' reconciled tokens plus the signed delta (new − old), then the largest per-item changes across the pair — so you can pinpoint what moved between two runs. Pass the OLD session first and the NEW session second. Read-only, like everything else. `--json` emits both `allocation_v1` objects plus a `bucket_deltas` array.
 
 <details>
 <summary>Sample <code>--json</code> output</summary>
@@ -206,6 +212,8 @@ PRs that add a second harness's emitter are explicitly welcome — that's how th
 - [x] **v0.2 — BPE tokenizer.** Replaced `chars/4` with a real vendored byte-level BPE tokenizer for tighter pre-reconciliation estimates.
 - [x] **v0.3 — multi-session trend.** `ctxprof trend` shows per-bucket budget drift across several sessions — "what changed between this run and last week's?"
 - [x] **v0.3 — cut-candidates.** `--cut-candidates N` ranks the largest single consumers across every bucket so you see what to trim (read-only diagnosis, never an automated edit).
+- [x] **v0.4 — two-session compare.** `ctxprof compare old.jsonl new.jsonl` diffs exactly two sessions — per-bucket old→new→Δ plus the largest per-item changes — so a regression is one command away.
+- [x] **v0.4 — trend ordering fix.** Explicit `trend` path args (and lexical shell globs) are ordered oldest→newest by mtime, so the drift axis and `Δ first→last` column can't run backward.
 - [ ] **v0.x — second-harness parser.** Codex or Aider, depending on which OSS maintainer says yes first.
 - [ ] **v0.x — CI mode.** Fail a build if the context allocation exceeds a budget. Driven by inbound team-plan demand, not built speculatively.
 

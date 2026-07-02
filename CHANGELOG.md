@@ -5,6 +5,36 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-07-02
+
+Fix-plus-feature pass. v0.3 shipped the multi-session trend and cut-candidates views;
+v0.4 fixes a real ordering bug in that trend command and adds the natural third
+follow-on question — "what changed between exactly these two sessions?".
+
+### Added — two-session compare
+- `ctxprof compare <old.jsonl> <new.jsonl>` profiles exactly two sessions through the
+  existing parse→attribute pipeline and prints, for each of the six buckets, both
+  sessions' reconciled tokens plus the signed delta (new − old), then the largest
+  per-item changes (a skill / MCP server / file path that grew, shrank, appeared, or
+  disappeared) across the pair — so you can pinpoint a regression without eyeballing
+  two trend columns. `--json` emits an object carrying both `allocation_v1` objects
+  plus a `bucket_deltas` array (each per-session allocation still validates against
+  `allocation_v1`). Read-only and terminal-only — ctxprof never edits a session. New
+  `internal/render/compare.go` (+ `compare_test.go`), a pure derived view over two
+  `Allocation`s that reuses the same cross-bucket item merge as cut-candidates.
+
+### Fixed
+- **`trend` now orders explicit path args oldest→newest by mtime.** `resolveTrendPaths`
+  returned explicit positional args verbatim, but the trend table's `Δ first→last`
+  column and its left-to-right time axis assume oldest→newest ordering (the `--since`
+  path already sorted by mtime). So `ctxprof trend b.jsonl a.jsonl` — or the common
+  shell glob `ctxprof trend *.jsonl`, which expands lexically, not chronologically —
+  rendered a backward time axis and a sign-flipped drift, silently lying about whether
+  the budget was creeping up. Explicit args are now mtime-sorted through the same
+  helper the `--since` path uses, so both entry points share one ordering. Covered by
+  new `cmd/ctxprof/main_test.go` cases (`TestSortPathsByMtime`,
+  `TestTrendOrdersExplicitArgsByMtime`).
+
 ## [0.3.0] — 2026-06-30
 
 Scope-expansion pass. v0.2 closed out the accuracy backlog, so v0.3 lifts two

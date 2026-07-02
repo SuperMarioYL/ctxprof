@@ -68,6 +68,7 @@ specific file. Use --json to emit allocation_v1.json instead of the tree.`,
 	cmd.AddCommand(newAttributeCmd())
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newTrendCmd())
+	cmd.AddCommand(newCompareCmd())
 	return cmd
 }
 
@@ -291,11 +292,18 @@ func trendLabel(path string, alloc parser.Allocation) string {
 }
 
 // resolveTrendPaths returns the ordered (oldest→newest) session paths for trend:
-// explicit args verbatim if given, else the sessions under ~/.claude/projects/
-// modified within --since.
+// explicit args sorted by file mtime if given, else the sessions under
+// ~/.claude/projects/ modified within --since.
+//
+// Explicit args are NOT taken verbatim: the trend table's "Δ first→last" column and
+// its left-to-right time axis both assume the sessions are ordered oldest→newest, and
+// the --since branch already sorts by mtime. Taking argv order literally would render a
+// backward time axis and a sign-flipped drift for out-of-order paths — most commonly a
+// shell glob like `ctxprof trend *.jsonl`, which expands lexically, not chronologically.
+// So we mtime-sort explicit args through the same helper the --since path uses.
 func resolveTrendPaths(args []string) ([]string, error) {
 	if len(args) > 0 {
-		return args, nil
+		return sortPathsByMtime(args), nil
 	}
 	if flagTrendSince == "" {
 		return nil, fmt.Errorf("trend needs session paths or --since <duration> (e.g. --since 7d)")
@@ -305,6 +313,32 @@ func resolveTrendPaths(args []string) ([]string, error) {
 		return nil, err
 	}
 	return sessionsSince(dur)
+}
+
+// sortPathsByMtime returns paths ordered oldest→newest by file mtime, so the trend view
+// always reads left-to-right as time advances regardless of the order they were passed.
+// A path that cannot be stat'd (e.g. a bad arg) sorts to the front with a zero time; the
+// downstream parse of that path surfaces the real error with its own message. The sort is
+// stable, so equal-mtime paths keep their input order.
+func sortPathsByMtime(paths []string) []string {
+	type entry struct {
+		path string
+		mod  time.Time
+	}
+	entries := make([]entry, len(paths))
+	for i, p := range paths {
+		var mod time.Time
+		if fi, err := os.Stat(p); err == nil {
+			mod = fi.ModTime()
+		}
+		entries[i] = entry{p, mod}
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].mod.Before(entries[j].mod) })
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.path
+	}
+	return out
 }
 
 // parseSinceDuration accepts Go durations plus a "<n>d" day shorthand.
@@ -358,6 +392,83 @@ func sessionsSince(dur time.Duration) ([]string, error) {
 		out[i] = e.path
 	}
 	return out, nil
+}
+
+func newCompareCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "compare <old.jsonl> <new.jsonl>",
+		Short: "Show per-bucket and per-item token deltas between exactly two sessions (m7 surface)",
+		Long: `compare profiles exactly two sessions and prints how each bucket's reconciled
+tokens moved from the first (old) to the second (new), plus the largest per-item changes
+(a skill / MCP server / file path that grew or shrank) across the pair. Use it to pinpoint
+what changed between two runs without eyeballing two trend columns.
+
+Pass the OLD session first and the NEW session second — the deltas are new minus old.
+Read-only and terminal-only — no graphs, no TUI. With --json it emits an object carrying
+both allocation_v1 objects plus a bucket_deltas array.`,
+		Args: cobra.ExactArgs(2),
+		RunE: runCompare,
+	}
+	c.Flags().BoolVar(&flagJSON, "json", false, "emit a JSON compare object (both allocations + bucket_deltas) instead of the table")
+	c.Flags().IntVar(&flagCompareTopItems, "top-items", 10, "how many of the largest per-item changes to list (0 = omit the item section)")
+	return c
+}
+
+// flagCompareTopItems caps how many per-item changes the compare view lists.
+var flagCompareTopItems int
+
+// compareJSON is the --json shape for `compare`: both per-session allocations (each still
+// a schema-valid allocation_v1 document via the embedded schema_version) plus the derived
+// per-bucket deltas. The per-session allocation schema is unchanged; bucket_deltas is a
+// derived, additive view, so this object is a superset — the two `old`/`new` members each
+// validate against allocation_v1 on their own.
+type compareJSON struct {
+	SchemaVersion string               `json:"schema_version"`
+	Old           allocationJSON       `json:"old"`
+	New           allocationJSON       `json:"new"`
+	BucketDeltas  []render.BucketDelta `json:"bucket_deltas"`
+	ItemDeltas    []render.ItemDelta   `json:"item_deltas,omitempty"`
+}
+
+func runCompare(cmd *cobra.Command, args []string) error {
+	windowMax := resolveWindowMax(cmd, flagWindowMax)
+
+	oldSess, err := parser.ParseFile(args[0])
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", args[0], err)
+	}
+	newSess, err := parser.ParseFile(args[1])
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", args[1], err)
+	}
+	oldAlloc := attribute.Attribute(oldSess, windowMax)
+	newAlloc := attribute.Attribute(newSess, windowMax)
+
+	bucketDeltas := render.BucketDeltas(oldAlloc, newAlloc)
+	itemDeltas := render.ItemDeltas(oldAlloc, newAlloc, flagCompareTopItems)
+
+	out := cmd.OutOrStdout()
+	if flagJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(compareJSON{
+			SchemaVersion: "compare/v1",
+			Old:           allocationJSON{SchemaVersion: "allocation/v1", Allocation: oldAlloc},
+			New:           allocationJSON{SchemaVersion: "allocation/v1", Allocation: newAlloc},
+			BucketDeltas:  bucketDeltas,
+			ItemDeltas:    itemDeltas,
+		})
+	}
+	render.Compare(out, compareLabel(args[0], oldAlloc), compareLabel(args[1], newAlloc),
+		bucketDeltas, itemDeltas, render.TreeOptions{NoColor: flagNoColor})
+	return nil
+}
+
+// compareLabel picks a short, stable label for a session in the compare header: the
+// session id (first 8 chars) if present, else the file's base name without extension.
+// Mirrors trendLabel so the two views read consistently.
+func compareLabel(path string, alloc parser.Allocation) string {
+	return trendLabel(path, alloc)
 }
 
 func newVersionCmd() *cobra.Command {

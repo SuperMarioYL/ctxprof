@@ -105,11 +105,17 @@ ctxprof --cut-candidates 10
 # 5. 看预算随时间的漂移——多个会话间每个桶的变化
 ctxprof trend --since 7d
 ctxprof trend session-a.jsonl session-b.jsonl session-c.jsonl --json
+
+# 6. 只对比两个会话——这次 run 相比上次到底变了什么？
+ctxprof compare old.jsonl new.jsonl
+ctxprof compare old.jsonl new.jsonl --json | jq '.bucket_deltas'
 ```
 
 > **`--cut-candidates N`** 在 tree 之后追加一个排序列表：跨所有桶、最大的 N 个具名占用项（某个 skill、某个 MCP server、某个文件路径），并标注它各自占窗口的比例——让你知道该砍哪个。它**只做诊断**：ctxprof 永远不会去编辑或改写一个 session。
 >
-> **`ctxprof trend`** 一次分析多个会话，按时间（旧→新）打印每个桶占用的变化，让悄悄上涨的 system/mcp/file 预算一眼可见。可传具体路径，或用 `--since 7d` 从 `~/.claude/projects/` 里挑最近的会话。`--json` 产出一个有序的 `allocation_v1` 数组。
+> **`ctxprof trend`** 一次分析多个会话，按时间（旧→新）打印每个桶占用的变化，让悄悄上涨的 system/mcp/file 预算一眼可见。可传具体路径，或用 `--since 7d` 从 `~/.claude/projects/` 里挑最近的会话。显式传入的路径会按文件 mtime 从旧到新排序，所以像 `ctxprof trend *.jsonl` 这样的 shell 通配也能按正确方向读。`--json` 产出一个有序的 `allocation_v1` 数组。
+>
+> **`ctxprof compare`** 只对比*两个*会话：对每个桶给出两边的 reconciled token 数以及带符号的差值（新 − 旧），再列出这一对之间变化最大的具名占用项——让你一眼定位两次 run 之间到底动了什么。第一个参数传旧会话、第二个传新会话。同样只读。`--json` 产出两个 `allocation_v1` 对象外加一个 `bucket_deltas` 数组。
 
 <details>
 <summary><code>--json</code> 输出示例</summary>
@@ -208,6 +214,8 @@ JSON 结构本身就是护城河。如果有一天 Codex / Aider / Cursor 也想
 - [x] **v0.2 — BPE tokenizer.** 用真正的、内置的字节级 BPE tokenizer 替掉 `chars/4`，让校准前的估算更紧。
 - [x] **v0.3 — 多会话 trend.** `ctxprof trend` 展示多个会话间每个桶的预算漂移——"这次 run 比上周多/少了什么？"
 - [x] **v0.3 — cut-candidates.** `--cut-candidates N` 跨所有桶把最大的单个占用项排序出来，让你知道该砍什么（只读诊断，绝不自动改写）。
+- [x] **v0.4 — 两会话 compare.** `ctxprof compare old.jsonl new.jsonl` 只对比两个会话——每个桶 旧→新→Δ，外加变化最大的具名占用项——让定位一次回归只差一条命令。
+- [x] **v0.4 — trend 排序修复.** 显式的 `trend` 路径参数（以及 shell 通配展开）按 mtime 从旧到新排序，漂移轴和 `Δ first→last` 列不会再反向。
 - [ ] **v0.x — 第二个 harness 解析器.** Codex 或 Aider，看哪边维护者先点头。
 - [ ] **v0.x — CI 模式.** 上下文超预算时 fail 构建。靠真实团队需求驱动，不预先做。
 
