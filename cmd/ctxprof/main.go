@@ -50,19 +50,27 @@ specific file. Use --json to emit allocation_v1.json instead of the tree.`,
 		RunE: runRoot,
 	}
 
-	// --json is local to the root (and re-declared on `attribute`, which also emits
-	// an allocation). --session / --no-color / --window-max are PERSISTENT so every
+	// --json and --cut-candidates are LOCAL to the root (and re-declared on
+	// `attribute`, the only other command that renders a single-session
+	// allocation). --session / --no-color / --window-max are PERSISTENT so every
 	// subcommand that renders an allocation (notably `attribute`, which calls
 	// profile()) inherits them. Before this they were registered with cmd.Flags()
 	// (local), so `ctxprof attribute s.jsonl --window-max 100000` errored with
 	// "unknown flag" and --no-color was silently unavailable on the subcommand even
 	// though profile() reads flagWindowMax/flagNoColor.
+	//
+	// --cut-candidates is deliberately NOT persistent: only the root and `attribute`
+	// paths (profile()) read flagCutCandidates. As a PersistentFlag it was advertised
+	// on `trend --help` / `compare --help` yet those commands never read it, so
+	// `ctxprof trend … --cut-candidates 5` silently accepted the flag and rendered
+	// nothing — a silent no-op. Local + re-declared on `attribute` makes trend/compare
+	// reject it with "unknown flag" instead of swallowing it.
 	cmd.Flags().BoolVar(&flagJSON, "json", false, "emit allocation_v1.json to stdout instead of the tree")
+	cmd.Flags().IntVar(&flagCutCandidates, "cut-candidates", 0,
+		"after the tree, list the N largest single consumers across all buckets (0 = off; a sensible default is 10)")
 	cmd.PersistentFlags().StringVar(&flagSession, "session", "", "explicit path to a JSONL session file")
 	cmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "disable ANSI colors in the tree output")
 	cmd.PersistentFlags().IntVar(&flagWindowMax, "window-max", 200_000, "context window size for percentage math")
-	cmd.PersistentFlags().IntVar(&flagCutCandidates, "cut-candidates", 0,
-		"after the tree, list the N largest single consumers across all buckets (0 = off; a sensible default is 10)")
 
 	cmd.AddCommand(newParseCmd())
 	cmd.AddCommand(newAttributeCmd())
@@ -220,6 +228,8 @@ func newAttributeCmd() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&flagJSON, "json", false, "emit allocation_v1.json instead of the tree")
+	c.Flags().IntVar(&flagCutCandidates, "cut-candidates", 0,
+		"after the tree, list the N largest single consumers across all buckets (0 = off; a sensible default is 10)")
 	return c
 }
 

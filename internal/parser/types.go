@@ -74,6 +74,14 @@ type Block struct {
 	// The Skill-tool case stores the skill name in input.command, which the
 	// classifier needs to surface individual skill rows.
 	ToolInput map[string]any `json:"tool_input,omitempty"`
+
+	// ToolUseID links a tool_use block to the tool_result it produced. It is
+	// the block's own `id` on a BlockToolUse, and the `tool_use_id` it
+	// references on a BlockToolResult. Attribution uses it to fold a user
+	// turn's tool_result (which carries the retrieved content but no usage)
+	// into the next assistant turn's reconciliation and to recover the
+	// originating Read's file_path / MCP-server name for that content.
+	ToolUseID string `json:"tool_use_id,omitempty"`
 }
 
 // Turn is one assistant or user turn in the session.

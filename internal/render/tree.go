@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/SuperMarioYL/ctxprof/internal/parser"
 	"github.com/charmbracelet/lipgloss"
 	runewidth "github.com/mattn/go-runewidth"
-	"github.com/SuperMarioYL/ctxprof/internal/parser"
 )
 
 // barWidth is the visible bar width in cells. Wide enough to resolve a

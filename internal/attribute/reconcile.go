@@ -74,9 +74,29 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 		bucketItems[bucket][name] += n
 	}
 
+	// tool_result blocks carry the retrieved file/tool content — the single
+	// biggest input in most sessions — but they live in USER turns, which have
+	// no message.usage. Their bytes are actually part of the NEXT assistant
+	// turn's input_tokens / cache_read. So we fold each user turn's tool_result
+	// blocks into the following assistant turn's reconciliation pool: their
+	// EstTokens join estSum and get scaled alongside the assistant's own output,
+	// landing (per the classifier's tool_result -> file rule) in the file bucket
+	// instead of being skipped entirely. Their item name (the read file_path /
+	// MCP server) is recovered by matching each result's ToolUseID to the
+	// originating tool_use, indexed below.
+	resultName := indexToolUseNames(sess)
+	var pendingResults []parser.Block
+
 	systemSeeded := false
 	for _, turn := range sess.Turns {
 		if turn.Usage == nil {
+			// User turns carry no usage; stash any tool_result blocks so the
+			// next assistant turn reconciles them (they belong to its input).
+			for _, b := range turn.Blocks {
+				if b.Type == parser.BlockToolResult {
+					pendingResults = append(pendingResults, b)
+				}
+			}
 			continue
 		}
 		turnTotal := turn.Usage.Total()
@@ -90,20 +110,31 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 			alloc.WindowOccupancy = fp
 		}
 
+		// The blocks reconciled for this assistant turn are the preceding user
+		// turn(s)' tool_result content (their bytes are in THIS turn's input)
+		// plus the assistant's own blocks. Consume the pending results here.
+		blocks := turn.Blocks
+		if len(pendingResults) > 0 {
+			blocks = make([]parser.Block, 0, len(pendingResults)+len(turn.Blocks))
+			blocks = append(blocks, pendingResults...)
+			blocks = append(blocks, turn.Blocks...)
+			pendingResults = nil
+		}
+
 		available := turnTotal
 		if !systemSeeded {
 			seed := turn.Usage.CacheCreationInputTokens
 			if seed > available {
 				seed = available
 			}
-			sysSeed, mcpSeed := splitFirstTurnSeed(seed, turn.Blocks)
+			sysSeed, mcpSeed := splitFirstTurnSeed(seed, blocks)
 			add(parser.BucketSystem, "", sysSeed)
 			add(parser.BucketMCP, "", mcpSeed)
 			available -= seed
 			systemSeeded = true
 		}
 
-		if available <= 0 || len(turn.Blocks) == 0 {
+		if available <= 0 || len(blocks) == 0 {
 			// Nothing to attribute at the block level; park whatever is left
 			// in system so the per-turn balance holds.
 			if available > 0 {
@@ -113,14 +144,14 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 		}
 
 		estSum := 0
-		for _, b := range turn.Blocks {
+		for _, b := range blocks {
 			estSum += b.EstTokens
 		}
 		if estSum == 0 {
 			// All blocks came in at zero estimated weight (e.g. empty
 			// tool_result). Distribute available evenly to the first block's
 			// bucket to keep the balance intact without inventing structure.
-			add(ClassifyBlock(turn.Blocks[0]), ItemName(turn.Blocks[0], ClassifyBlock(turn.Blocks[0])), available)
+			add(ClassifyBlock(blocks[0]), itemNameFor(blocks[0], ClassifyBlock(blocks[0]), resultName), available)
 			continue
 		}
 
@@ -128,9 +159,9 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 		// total, giving the last block the remainder so per-turn balance is
 		// exact despite integer truncation.
 		assigned := 0
-		for i, b := range turn.Blocks {
+		for i, b := range blocks {
 			var scaled int
-			if i == len(turn.Blocks)-1 {
+			if i == len(blocks)-1 {
 				scaled = available - assigned
 			} else {
 				scaled = int(float64(b.EstTokens) / float64(estSum) * float64(available))
@@ -143,7 +174,7 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 			}
 			assigned += scaled
 			bucket := ClassifyBlock(b)
-			add(bucket, ItemName(b, bucket), scaled)
+			add(bucket, itemNameFor(b, bucket, resultName), scaled)
 		}
 	}
 
@@ -165,6 +196,42 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 		alloc.Buckets[bucket] = bd
 	}
 	return alloc
+}
+
+// indexToolUseNames maps each tool_use block's ToolUseID to the display name it
+// classified into (a Read's file_path, an MCP server, a skill name). It lets a
+// tool_result block — which carries the retrieved content but not the originating
+// path — inherit the name of the tool_use that produced it, so a 40k-token file
+// read surfaces as a named row in the file bucket rather than an anonymous blob.
+func indexToolUseNames(sess *parser.Session) map[string]string {
+	names := map[string]string{}
+	for _, turn := range sess.Turns {
+		for _, b := range turn.Blocks {
+			if b.Type != parser.BlockToolUse || b.ToolUseID == "" {
+				continue
+			}
+			if name := ItemName(b, ClassifyBlock(b)); name != "" {
+				names[b.ToolUseID] = name
+			}
+		}
+	}
+	return names
+}
+
+// itemNameFor is ItemName with one addition: a tool_result block (which the
+// classifier routes to the file bucket but leaves unnamed, since the JSONL does
+// not repeat the path on the result) inherits the name of the tool_use it
+// answers, looked up by ToolUseID in resultName. Falls back to the plain
+// ItemName for every other block, and for a result whose originating tool_use
+// had no surfacable name (e.g. a Bash result) it stays unnamed — its tokens
+// still roll into the bucket total.
+func itemNameFor(b parser.Block, bucket parser.Bucket, resultName map[string]string) string {
+	if b.Type == parser.BlockToolResult && b.ToolUseID != "" {
+		if name := resultName[b.ToolUseID]; name != "" {
+			return name
+		}
+	}
+	return ItemName(b, bucket)
 }
 
 // splitFirstTurnSeed apportions the first turn's cache_creation_input_tokens

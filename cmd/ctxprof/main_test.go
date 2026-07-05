@@ -93,6 +93,49 @@ func TestCutCandidatesFlagRenders(t *testing.T) {
 	}
 }
 
+// TestAttributeSubcommandAcceptsCutCandidates confirms `attribute` still honors
+// --cut-candidates after it moved from a root PersistentFlag to a local flag
+// re-declared on the subcommand (mirroring --json). profile() reads
+// flagCutCandidates on both the root and attribute paths.
+func TestAttributeSubcommandAcceptsCutCandidates(t *testing.T) {
+	sess := writeSession(t)
+	out, err := runCmd(t, "attribute", sess, "--no-color", "--cut-candidates", "3")
+	if err != nil {
+		t.Fatalf("attribute --cut-candidates should be accepted, got: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "unknown flag") {
+		t.Fatalf("attribute rejected --cut-candidates:\n%s", out)
+	}
+}
+
+// TestCutCandidatesRejectedOnTrendCompare is the regression test for
+// fix-cut-candidates-silent-noop-on-subcommands: --cut-candidates used to be a
+// root PersistentFlag, so `trend`/`compare` advertised it on --help yet never
+// read it — accepting the flag and silently rendering nothing. Now it is local
+// to root + attribute, so trend/compare must REJECT it with "unknown flag"
+// instead of swallowing it.
+func TestCutCandidatesRejectedOnTrendCompare(t *testing.T) {
+	a := writeSession(t)
+	b := writeSession(t)
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"trend", []string{"trend", a, b, "--cut-candidates", "5"}},
+		{"compare", []string{"compare", a, b, "--cut-candidates", "5"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runCmd(t, tc.args...)
+			if err == nil {
+				t.Fatalf("%s should REJECT --cut-candidates (was a silent no-op), but it was accepted:\n%s", tc.name, out)
+			}
+			if !strings.Contains(out, "unknown flag") && !strings.Contains(err.Error(), "unknown flag") {
+				t.Fatalf("%s should error 'unknown flag' for --cut-candidates, got: %v\n%s", tc.name, err, out)
+			}
+		})
+	}
+}
+
 // TestTrendNeedsTwoSessions confirms the trend command rejects a single session.
 func TestTrendNeedsTwoSessions(t *testing.T) {
 	sess := writeSession(t)

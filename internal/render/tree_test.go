@@ -6,8 +6,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	runewidth "github.com/mattn/go-runewidth"
 	"github.com/SuperMarioYL/ctxprof/internal/parser"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 // The v0.1 truncate sliced s[:width-1] on a byte index, cutting CJK/emoji item
@@ -16,9 +16,9 @@ import (
 
 func TestTruncate_NeverCutsMidRune(t *testing.T) {
 	cases := []string{
-		"上下文窗口分析工具一二三四五六七八九十",          // pure CJK, wider than the column
+		"上下文窗口分析工具一二三四五六七八九十",                // pure CJK, wider than the column
 		"项目/路径/very/long/混合/path/名称/segment", // mixed ASCII + CJK
-		"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",                            // emoji run
+		"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",                 // emoji run
 	}
 	for _, in := range cases {
 		got := truncate(in, 28)

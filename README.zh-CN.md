@@ -8,7 +8,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href="https://go.dev/dl/"><img alt="go" src="https://img.shields.io/badge/go-1.24-00ADD8?logo=go&logoColor=white"></a>
   <a href="https://github.com/SuperMarioYL/ctxprof/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-go%20build%20%7C%20vet%20%7C%20test-success"></a>
-  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.1.0-orange"></a>
+  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.5.0-orange"></a>
   <a href="#"><img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-ready-7c3aed"></a>
   <a href="#"><img alt="MCP" src="https://img.shields.io/badge/MCP-aware-0ea5e9"></a>
 </p>
@@ -216,6 +216,8 @@ JSON 结构本身就是护城河。如果有一天 Codex / Aider / Cursor 也想
 - [x] **v0.3 — cut-candidates.** `--cut-candidates N` 跨所有桶把最大的单个占用项排序出来，让你知道该砍什么（只读诊断，绝不自动改写）。
 - [x] **v0.4 — 两会话 compare.** `ctxprof compare old.jsonl new.jsonl` 只对比两个会话——每个桶 旧→新→Δ，外加变化最大的具名占用项——让定位一次回归只差一条命令。
 - [x] **v0.4 — trend 排序修复.** 显式的 `trend` 路径参数（以及 shell 通配展开）按 mtime 从旧到新排序，漂移轴和 `Δ first→last` 列不会再反向。
+- [x] **v0.5 — `tool_result` 内容终于被计入.** 读回的文件/工具内容（一次会话里最大的输入）存在于没有 `message.usage` 的*用户*轮里，之前被吞进了 `output`/`reasoning`。现在它会折叠进下一个 assistant 轮的对账池，按读取路径落到 **file** 桶——面向文件密集会话，"我的 token 到底去哪了" 这个核心答案终于是对的。
+- [x] **v0.5 — schema 与 flag 修复.** `--json --cut-candidates` 现在能通过 `allocation_v1.json` 校验（schema 认识 `cut_candidates` 了）；`--cut-candidates` 在 `trend`/`compare` 上会报 `unknown flag` 而不再被静默忽略。
 - [ ] **v0.x — 第二个 harness 解析器.** Codex 或 Aider，看哪边维护者先点头。
 - [ ] **v0.x — CI 模式.** 上下文超预算时 fail 构建。靠真实团队需求驱动，不预先做。
 
@@ -246,6 +248,12 @@ Issue 和 PR 都欢迎，最有价值的三类：
 ## License
 
 [MIT](./LICENSE) —— 想干啥干啥，欢迎署名，没有担保。
+
+## 点个 Star
+
+如果你 `go install` 了 ctxprof，而它帮你揪出了本不知道存在的 token 占用，那么在
+GitHub 上点个 star 就是在告诉我：真的有人在用。安装都直接走 release 产物，star 是这个
+项目值不值得继续做下去的唯一信号。
 
 ## 传播话术
 

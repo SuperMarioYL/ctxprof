@@ -171,6 +171,7 @@ func blockFromJSON(b gjson.Result) (Block, bool) {
 			RawExcerpt: excerpt(name + " " + inputRaw),
 			ToolName:   name,
 			ToolInput:  resultToMap(b.Get("input")),
+			ToolUseID:  b.Get("id").String(),
 		}, true
 
 	case "tool_result":
@@ -179,6 +180,7 @@ func blockFromJSON(b gjson.Result) (Block, bool) {
 			Type:       BlockToolResult,
 			EstTokens:  estimate.Tokens(text),
 			RawExcerpt: excerpt(text),
+			ToolUseID:  b.Get("tool_use_id").String(),
 		}, true
 	}
 	return Block{}, false

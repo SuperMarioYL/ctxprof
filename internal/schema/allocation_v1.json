@@ -47,6 +47,11 @@
         "reasoning": { "$ref": "#/$defs/bucket" },
         "output":    { "$ref": "#/$defs/bucket" }
       }
+    },
+    "cut_candidates": {
+      "type": "array",
+      "description": "Optional read-only ranking of the largest single named consumers of the window, emitted only when --cut-candidates N is passed. A pure cross-bucket merge+rank over buckets[*].items; it never mutates a session (diagnosis, not prescription). Absent on a plain --json run.",
+      "items": { "$ref": "#/$defs/cutCandidate" }
     }
   },
   "$defs": {
@@ -85,6 +90,33 @@
         "source_ref": {
           "type": "string",
           "description": "Optional pointer back to the originating block (e.g. turn idx, block index) for tools that want to drill down."
+        }
+      }
+    },
+    "cutCandidate": {
+      "type": "object",
+      "required": ["bucket", "name", "tokens", "window_share"],
+      "additionalProperties": false,
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "enum": ["system", "skill", "mcp", "file", "reasoning", "output"],
+          "description": "Which bucket this consumer lives in."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name of the consumer (skill name, MCP server, file path)."
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reconciled token count for this consumer."
+        },
+        "window_share": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Consumer tokens as a fraction (0..1) of the session's peak window occupancy. 0 when window_occupancy is 0."
         }
       }
     }

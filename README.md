@@ -8,7 +8,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href="https://go.dev/dl/"><img alt="go" src="https://img.shields.io/badge/go-1.24-00ADD8?logo=go&logoColor=white"></a>
   <a href="https://github.com/SuperMarioYL/ctxprof/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-go%20build%20%7C%20vet%20%7C%20test-success"></a>
-  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.1.0-orange"></a>
+  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.5.0-orange"></a>
   <a href="#"><img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-ready-7c3aed"></a>
   <a href="#"><img alt="MCP" src="https://img.shields.io/badge/MCP-aware-0ea5e9"></a>
 </p>
@@ -214,6 +214,8 @@ PRs that add a second harness's emitter are explicitly welcome — that's how th
 - [x] **v0.3 — cut-candidates.** `--cut-candidates N` ranks the largest single consumers across every bucket so you see what to trim (read-only diagnosis, never an automated edit).
 - [x] **v0.4 — two-session compare.** `ctxprof compare old.jsonl new.jsonl` diffs exactly two sessions — per-bucket old→new→Δ plus the largest per-item changes — so a regression is one command away.
 - [x] **v0.4 — trend ordering fix.** Explicit `trend` path args (and lexical shell globs) are ordered oldest→newest by mtime, so the drift axis and `Δ first→last` column can't run backward.
+- [x] **v0.5 — `tool_result` content now counted.** Retrieved file/tool content (the biggest input in a session) lives in *user* turns with no `message.usage`; it was being swallowed into `output`/`reasoning`. It now folds into the next assistant turn's reconciliation and lands in the **file** bucket under the read's path — the core "where did my tokens go?" answer is finally right for file-heavy sessions.
+- [x] **v0.5 — schema + flag fixes.** `--json --cut-candidates` now validates against `allocation_v1.json` (the schema learned about `cut_candidates`), and `--cut-candidates` is rejected on `trend`/`compare` instead of being silently ignored.
 - [ ] **v0.x — second-harness parser.** Codex or Aider, depending on which OSS maintainer says yes first.
 - [ ] **v0.x — CI mode.** Fail a build if the context allocation exceeds a budget. Driven by inbound team-plan demand, not built speculatively.
 
@@ -242,6 +244,12 @@ The classifier is in [`internal/attribute/classifier.go`](./internal/attribute/c
 ## License
 
 [MIT](./LICENSE) — do whatever you want, attribution appreciated, no warranty.
+
+## Star this
+
+If you `go install`ed ctxprof and it found tokens you didn't know were there, a
+star on GitHub tells me someone is actually using it — installs come straight from
+the release assets, so a star is the only signal that this is worth continuing.
 
 ## Share this
 

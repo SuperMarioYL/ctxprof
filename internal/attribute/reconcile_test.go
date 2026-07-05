@@ -241,6 +241,113 @@ func TestAttribute_WindowMaxGuardKeepsSchemaValid(t *testing.T) {
 	}
 }
 
+// --- fix: tool_result content misattributed ---------------------------------
+//
+// tool_result blocks carry the retrieved file/tool content (the single biggest
+// input in a typical session) but live in USER turns, which have no
+// message.usage. Before the fix, reconcile skipped user turns entirely, so a
+// large read's bytes were distributed across only the NEXT assistant turn's own
+// output/thinking blocks — landing ~99% in output/reasoning while the file
+// bucket caught only the tiny Read request. The fix folds each user turn's
+// tool_result blocks into the next assistant turn's reconciliation pool, so the
+// retrieved content lands in the file bucket (classifier tool_result -> file)
+// and inherits the originating Read's file_path as its item name.
+func TestAttribute_ToolResultContentLandsInFileBucket(t *testing.T) {
+	// A 40k-char read is ~10k est tokens (chars/4); model that estimate on the
+	// tool_result block directly (Block stores EstTokens, not raw content).
+	const readEst = 40_000 / 4
+	const readPath = "internal/huge/file.go"
+
+	sess := &parser.Session{
+		ID: "toolresultcheck",
+		Turns: []parser.Turn{
+			// a0: assistant issues a Read (tiny request block).
+			{Idx: 0, Role: parser.RoleAssistant,
+				Usage: &parser.Usage{InputTokens: 200, OutputTokens: 100},
+				Blocks: []parser.Block{
+					{Type: parser.BlockText, EstTokens: 20},
+					{Type: parser.BlockToolUse, ToolName: "Read", EstTokens: 10,
+						ToolInput: map[string]any{"file_path": readPath}, ToolUseID: "tu_read_1"},
+				}},
+			// u1: USER turn carrying the 40k-char tool_result — no usage.
+			{Idx: 1, Role: parser.RoleUser,
+				Blocks: []parser.Block{
+					{Type: parser.BlockToolResult, EstTokens: readEst, ToolUseID: "tu_read_1"},
+				}},
+			// a2: assistant replies; its input_tokens now include the read's
+			// content (this is where those bytes actually get billed).
+			{Idx: 2, Role: parser.RoleAssistant,
+				Usage: &parser.Usage{InputTokens: 45_000, OutputTokens: 120},
+				Blocks: []parser.Block{
+					{Type: parser.BlockText, EstTokens: 120},
+				}},
+		},
+	}
+
+	alloc := attribute.Attribute(sess, 200_000)
+
+	// Reconciliation must still balance to the summed real per-turn totals.
+	realTotal := 0
+	for _, tr := range sess.Turns {
+		if tr.Usage != nil {
+			realTotal += tr.Usage.Total()
+		}
+	}
+	bucketSum := 0
+	for _, bd := range alloc.Buckets {
+		bucketSum += bd.Tokens
+	}
+	if bucketSum != realTotal {
+		t.Fatalf("bucket sum %d != real total %d (balance broken by the fold)", bucketSum, realTotal)
+	}
+
+	file := alloc.Buckets[parser.BucketFile].Tokens
+	output := alloc.Buckets[parser.BucketOutput].Tokens
+
+	// The 40k-char read is ~10k est tokens out of a2's ~45.6k available; the
+	// file bucket must now dominate output on this file-heavy exchange. Before
+	// the fix, file was a sliver (~the Read request only) and output swallowed
+	// the content.
+	if file <= output {
+		t.Errorf("file bucket (%d) should exceed output (%d) after folding the tool_result content", file, output)
+	}
+	// Concretely: the folded result is ~10k/(10k+120) of a2's 45_120 available
+	// ≈ 44.6k — the file bucket must be in that ballpark, not a few hundred.
+	if file < 30_000 {
+		t.Errorf("file bucket = %d, want ~44k (the retrieved read content), not a sliver — tool_result still misattributed", file)
+	}
+
+	// The content inherits the originating Read's path as its item name.
+	mustHaveItem(t, alloc.Buckets[parser.BucketFile], readPath)
+}
+
+// A trailing user turn's tool_result with no following assistant turn has no
+// usage bucket to reconcile into; it must be dropped without corrupting the
+// balance (the bytes were never billed to a model turn).
+func TestAttribute_TrailingToolResultDropped(t *testing.T) {
+	sess := &parser.Session{
+		ID: "trailingresult",
+		Turns: []parser.Turn{
+			{Idx: 0, Role: parser.RoleAssistant,
+				Usage:  &parser.Usage{InputTokens: 300, OutputTokens: 50},
+				Blocks: []parser.Block{{Type: parser.BlockText, EstTokens: 30}}},
+			// Trailing user turn — tool_result but no assistant turn after it.
+			{Idx: 1, Role: parser.RoleUser,
+				Blocks: []parser.Block{{Type: parser.BlockToolResult, EstTokens: 9_999, ToolUseID: "tu_orphan"}}},
+		},
+	}
+	alloc := attribute.Attribute(sess, 200_000)
+
+	realTotal := sess.Turns[0].Usage.Total()
+	bucketSum := 0
+	for _, bd := range alloc.Buckets {
+		bucketSum += bd.Tokens
+	}
+	if bucketSum != realTotal {
+		t.Errorf("bucket sum %d != real total %d — trailing tool_result must not add phantom tokens", bucketSum, realTotal)
+	}
+}
+
 func mustHaveItem(t *testing.T, bd parser.BucketBreakdown, name string) {
 	t.Helper()
 	for _, it := range bd.Items {

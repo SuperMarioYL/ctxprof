@@ -17,10 +17,10 @@ import (
 // mirrors parser.Turn but is declared separately so the on-disk debug
 // schema does not silently follow internal struct churn.
 type PerTurnRecord struct {
-	Idx    int             `json:"idx"`
-	Role   parser.Role     `json:"role"`
-	Usage  *parser.Usage   `json:"usage"`
-	Blocks []parser.Block  `json:"blocks"`
+	Idx    int            `json:"idx"`
+	Role   parser.Role    `json:"role"`
+	Usage  *parser.Usage  `json:"usage"`
+	Blocks []parser.Block `json:"blocks"`
 }
 
 // PerTurnJSON writes one PerTurnRecord per line to w.

@@ -5,6 +5,42 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-07-05
+
+Correctness pass. Three fixes over the shipped v0.4 source — no new features, no new
+deps, still read-only and terminal-only. The headline fix restores ctxprof's core
+promise ("where do your tokens go?") for file-heavy sessions.
+
+### Fixed
+- **`tool_result` content now lands in the `file` bucket instead of being swallowed by
+  `output`/`reasoning`.** `tool_result` blocks carry the actual retrieved file/tool
+  content — the single biggest input in a typical session — but they live in *user*
+  turns, which carry no `message.usage`. Attribution skipped user turns entirely
+  (`if turn.Usage == nil { continue }`), so a large read's bytes were distributed across
+  only the *next* assistant turn's own output/thinking blocks: a 40k-char file read
+  landed ~99% in `output`/`reasoning` while the `file` bucket caught only the tiny Read
+  request. The classifier's `tool_result → file` rule was effectively dead on real
+  sessions. Now each user turn's `tool_result` blocks are folded into the following
+  assistant turn's reconciliation pool (their bytes are part of that turn's
+  `input_tokens`), so the retrieved content lands in `file` and inherits the originating
+  Read's `file_path` (matched by `tool_use_id`) as its item name. The per-turn balance
+  invariant is preserved. Touches `internal/parser` (new `Block.ToolUseID`) and
+  `internal/attribute/reconcile.go`; covered by `reconcile_test.go` +
+  `classifier_test.go`.
+- **`--json --cut-candidates` now validates against the published schema.** The emitted
+  document carried a top-level `cut_candidates` array, but `allocation_v1.json` sets
+  `additionalProperties: false` and never declared it (the schema predates the v0.3
+  cut-candidates feature), so a documented flag combination emitted a document that
+  failed the project's own schema. Added `cut_candidates` + a `$defs/cutCandidate`
+  object to `allocation_v1.json`; plain `--json` still validates unchanged. Covered by
+  the new `internal/schema/allocation_v1_test.go`.
+- **`--cut-candidates` no longer silently no-ops on `trend`/`compare`.** It was a root
+  `PersistentFlag`, so cobra advertised it on every subcommand's `--help`, yet `trend`
+  and `compare` never read it — `ctxprof trend … --cut-candidates 5` silently accepted
+  the flag and rendered nothing. Moved it to a local flag on root, re-declared on
+  `attribute` (mirroring `--json`), so `trend`/`compare` now reject it with `unknown
+  flag` instead of swallowing it. Covered by `cmd/ctxprof/main_test.go`.
+
 ## [0.4.0] — 2026-07-02
 
 Fix-plus-feature pass. v0.3 shipped the multi-session trend and cut-candidates views;
