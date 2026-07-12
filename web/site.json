@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "name": "ctxprof",
+  "github": "https://github.com/SuperMarioYL/ctxprof",
+  "host": "ctxprof.lei6393.com",
+  "lang": { "primary": "en", "toggle": true },
+  "accent": ["#5566d6", "#4f46e5", "#3a8fd0"],
+  "hero": {
+    "eyebrow": { "zh": "本地 · 无模型 · 单二进制", "en": "Local · No model · Single binary" },
+    "headline": { "zh": "看清 20 万 tokens\n到底花在哪", "en": "See where your\n200k tokens went" },
+    "sub": {
+      "zh": "ctxprof 把 Claude Code 会话那个笼统的 token 总数，拆成 system / skill / MCP / file / reasoning / output 六个桶的结构化占用，让你知道该卸载什么。",
+      "en": "ctxprof turns a Claude Code session's flat token total into a structured allocation across six buckets — system, skill, MCP, file, reasoning, output — so you know what to unload."
+    },
+    "command": "go install github.com/SuperMarioYL/ctxprof/cmd/ctxprof@latest",
+    "ctaGithub": { "zh": "在 GitHub 查看", "en": "View on GitHub" },
+    "scroll": { "zh": "向下滚动", "en": "Scroll" }
+  },
+  "advantages": [
+    {
+      "title": { "zh": "六桶归账", "en": "Six-bucket allocation" },
+      "body": {
+        "zh": "每个 block 都归入 system / skill / MCP / file / reasoning / output 之一 —— 火焰树里能看到每个桶占 20 万窗口的比例。",
+        "en": "Every block is classified into system, skill, MCP, file, reasoning or output — the flame tree shows each bucket's share of the 200k window."
+      },
+      "chips": ["› system / skill / mcp", "› file / reasoning / output"]
+    },
+    {
+      "title": { "zh": "总数精确，占比校准", "en": "Exact totals, calibrated splits" },
+      "body": {
+        "zh": "JSONL 里有每轮真实的 usage 总数，却没有 per-block 字段；ctxprof 按 chars/4 估每个 block，再缩放到那一轮的真实总数 —— 会话总和保持精确，各桶占比是校准过的估计。",
+        "en": "The JSONL carries real per-turn usage totals but no per-block field; ctxprof estimates each block at chars/4, then scales to the turn's real total — the session sum stays exact while bucket splits are calibrated."
+      },
+      "chips": ["› chars/4 estimate", "› scaled to real usage"]
+    },
+    {
+      "title": { "zh": "只诊断，从不改动", "en": "Diagnosis only — read-only" },
+      "body": {
+        "zh": "--cut-candidates 列出占用最大的具名消费者，告诉你该删什么；trend 显示跨会话的逐桶漂移；compare 精确对比两次会话。ctxprof 从不编辑或改写会话。",
+        "en": "--cut-candidates ranks the largest named consumers so you know what to trim; trend shows per-bucket drift across sessions; compare diffs exactly two. ctxprof never edits or rewrites a session."
+      },
+      "chips": ["› --cut-candidates N", "› trend / compare"]
+    },
+    {
+      "title": { "zh": "离线二进制，JSON 输出", "en": "Offline binary, JSON out" },
+      "body": {
+        "zh": "一个静态 Go 二进制 —— 无网络请求、回路里没有模型。可输出 allocation_v1.json，直接管道给 jq 或其他工具。",
+        "en": "A single static Go binary — no network calls, no model in the loop. Emit allocation_v1.json and pipe it straight into jq or another tool."
+      },
+      "chips": ["› no network", "› allocation_v1.json"]
+    }
+  ],
+  "scene": { "kind": "hub-nodes", "nodes": ["system", "skill", "mcp", "file", "reasoning", "output"] },
+  "cta": {
+    "headline": { "zh": "profile 你的上一次会话", "en": "Profile your last session" },
+    "sub": {
+      "zh": "MIT 许可，go install 装好即用 —— 自动发现 ~/.claude/projects/。",
+      "en": "MIT-licensed, go install and run — auto-discovers ~/.claude/projects/."
+    },
+    "button": { "zh": "在 GitHub 查看", "en": "View on GitHub" }
+  },
+  "footer": { "tag": { "zh": "开源 · MIT", "en": "Open source · MIT" } }
+}
