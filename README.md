@@ -8,7 +8,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href="https://go.dev/dl/"><img alt="go" src="https://img.shields.io/badge/go-1.24-00ADD8?logo=go&logoColor=white"></a>
   <a href="https://github.com/SuperMarioYL/ctxprof/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-go%20build%20%7C%20vet%20%7C%20test-success"></a>
-  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.5.0-orange"></a>
+  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.6.0-orange"></a>
   <a href="#"><img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-ready-7c3aed"></a>
   <a href="#"><img alt="MCP" src="https://img.shields.io/badge/MCP-aware-0ea5e9"></a>
 </p>
@@ -157,7 +157,7 @@ The Claude Code JSONL session log gives you **real per-turn totals** (`message.u
 | `tool_use` name = `Skill` | `skill` | `input.command` names the skill |
 | `tool_use` name starts `mcp__` | `mcp` | `mcp__<server>__<tool>` |
 | `tool_use` anything else (`Bash`, `Edit`, …) | `output` | The model's action surface |
-| `tool_result` | `file` | Retrieved content brought back in |
+| `tool_result` | *origin bucket* | Attributed to the bucket of the `tool_use` that produced it — an MCP response → `mcp`, a `Read` → `file`, a `Skill` → `skill`, a `Bash` → `output`; `file` only as a fallback for an unknown origin |
 | *(no per-block signal)* | `system` | Approximated from first-turn `cache_creation_input_tokens` |
 
 Four packages, one static binary, zero network calls:
@@ -216,6 +216,7 @@ PRs that add a second harness's emitter are explicitly welcome — that's how th
 - [x] **v0.4 — trend ordering fix.** Explicit `trend` path args (and lexical shell globs) are ordered oldest→newest by mtime, so the drift axis and `Δ first→last` column can't run backward.
 - [x] **v0.5 — `tool_result` content now counted.** Retrieved file/tool content (the biggest input in a session) lives in *user* turns with no `message.usage`; it was being swallowed into `output`/`reasoning`. It now folds into the next assistant turn's reconciliation and lands in the **file** bucket under the read's path — the core "where did my tokens go?" answer is finally right for file-heavy sessions.
 - [x] **v0.5 — schema + flag fixes.** `--json --cut-candidates` now validates against `allocation_v1.json` (the schema learned about `cut_candidates`), and `--cut-candidates` is rejected on `trend`/`compare` instead of being silently ignored.
+- [x] **v0.6 — `tool_result` counted in the *right* bucket.** v0.5 folded retrieved content in but sent every `tool_result` to `file`, so an MCP tool response showed up as a `file` row named after the MCP server while `mcp` under-counted. Each `tool_result` now lands in the bucket of the tool that produced it (MCP → `mcp`, `Skill` → `skill`, `Bash` → `output`, `Read` → `file`) — so MCP- and tool-heavy sessions read correctly too.
 - [ ] **v0.x — second-harness parser.** Codex or Aider, depending on which OSS maintainer says yes first.
 - [ ] **v0.x — CI mode.** Fail a build if the context allocation exceeds a budget. Driven by inbound team-plan demand, not built speculatively.
 

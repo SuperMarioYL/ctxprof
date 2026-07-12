@@ -5,6 +5,32 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-07-13
+
+Correctness pass. One fix over the shipped v0.5 source — no new features, no new deps,
+still read-only and terminal-only. It sharpens the same "where do your tokens go?" answer
+v0.5 restored, this time for MCP- and tool-heavy sessions.
+
+### Fixed
+- **A `tool_result`'s tokens now land in the bucket of the tool that produced it — an MCP
+  call's response counts as `mcp`, not `file`.** v0.5 correctly stopped dropping
+  `tool_result` content, but it classified *every* folded `tool_result` to the `file`
+  bucket (the classifier's context-free `tool_result → file` rule). Because the fold also
+  inherits each result's item name from the originating `tool_use`, a large MCP tool
+  response landed in the `file` bucket *under the MCP server's own name*. On the bundled
+  demo session, the `mcp__grafana__get_panel` panel response (~9,360 tokens) showed up as a
+  `file` row literally named `grafana`, while the `mcp` bucket under-counted the real window
+  consumption; Bash / WebFetch / any non-`Read` tool response was likewise dumped into
+  `file`. Now each `tool_result` is attributed to the bucket of the `tool_use` that produced
+  it (matched by `tool_use_id`): an MCP response → `mcp`, a `Skill` → `skill`, a `Bash` →
+  `output`, a `Read` → `file`, and an unknown origin falls back to `file`. On the demo the
+  `grafana` request and response now consolidate under one `mcp` row (~15,358) and `file`
+  holds only the real read path. The per-turn reconciliation balance and `cumulative_tokens`
+  are unchanged (only the target bucket moves, never the amount). `ClassifyBlock` stays
+  context-free; the origin-aware routing lives in `internal/attribute/reconcile.go`
+  (`indexToolUse` + `classifyForAttribution`). Covered by `reconcile_test.go`
+  (`TestAttribute_ToolResultInheritsOriginBucket`).
+
 ## [0.5.0] — 2026-07-05
 
 Correctness pass. Three fixes over the shipped v0.4 source — no new features, no new

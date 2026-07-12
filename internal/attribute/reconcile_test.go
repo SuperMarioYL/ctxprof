@@ -348,6 +348,100 @@ func TestAttribute_TrailingToolResultDropped(t *testing.T) {
 	}
 }
 
+// --- fix: tool_result routed to origin bucket, not blindly to file ----------
+//
+// A tool_result carries the retrieved content of whatever tool produced it. The
+// v0.5 fold correctly stopped dropping that content, but classified EVERY
+// tool_result to the file bucket (the classifier's context-free rule), so an MCP
+// tool call's (large) response landed in `file` under the MCP server's inherited
+// name — the mcp bucket undercounted real window consumption and the file bucket
+// was polluted with a row named after an MCP server. The fix attributes a
+// tool_result to the bucket of the tool_use that produced it (matched by
+// tool_use_id): mcp response -> mcp, skill -> skill, Bash -> output, Read ->
+// file, unknown origin -> file fallback.
+func TestAttribute_ToolResultInheritsOriginBucket(t *testing.T) {
+	const bigEst = 40_000 / 4 // ~10k est tokens of retrieved content
+
+	// a0 issues an MCP call, a Skill load, a Bash run, and an orphan-less Read is
+	// covered by the existing file test — here we prove non-file origins.
+	sess := &parser.Session{
+		ID: "originbucket",
+		Turns: []parser.Turn{
+			{Idx: 0, Role: parser.RoleAssistant,
+				Usage: &parser.Usage{InputTokens: 300, OutputTokens: 100},
+				Blocks: []parser.Block{
+					{Type: parser.BlockText, EstTokens: 20},
+					{Type: parser.BlockToolUse, ToolName: "mcp__grafana__get_panel", EstTokens: 10, ToolUseID: "tu_mcp"},
+					{Type: parser.BlockToolUse, ToolName: "Skill", EstTokens: 10,
+						ToolInput: map[string]any{"command": "caveman"}, ToolUseID: "tu_skill"},
+					{Type: parser.BlockToolUse, ToolName: "Bash", EstTokens: 10, ToolUseID: "tu_bash"},
+				}},
+			// u1: user turn carrying the three big tool_results (no usage).
+			{Idx: 1, Role: parser.RoleUser,
+				Blocks: []parser.Block{
+					{Type: parser.BlockToolResult, EstTokens: bigEst, ToolUseID: "tu_mcp"},
+					{Type: parser.BlockToolResult, EstTokens: bigEst, ToolUseID: "tu_skill"},
+					{Type: parser.BlockToolResult, EstTokens: bigEst, ToolUseID: "tu_bash"},
+				}},
+			// a2: assistant reply — its input_tokens bill the three results above.
+			{Idx: 2, Role: parser.RoleAssistant,
+				Usage:  &parser.Usage{InputTokens: 90_000, OutputTokens: 120},
+				Blocks: []parser.Block{{Type: parser.BlockText, EstTokens: 120}}},
+		},
+	}
+
+	alloc := attribute.Attribute(sess, 200_000)
+
+	// Balance invariant unchanged by re-bucketing.
+	realTotal := 0
+	for _, tr := range sess.Turns {
+		if tr.Usage != nil {
+			realTotal += tr.Usage.Total()
+		}
+	}
+	bucketSum := 0
+	for _, bd := range alloc.Buckets {
+		bucketSum += bd.Tokens
+	}
+	if bucketSum != realTotal {
+		t.Fatalf("bucket sum %d != real total %d — re-bucketing broke balance", bucketSum, realTotal)
+	}
+
+	mcp := alloc.Buckets[parser.BucketMCP].Tokens
+	skill := alloc.Buckets[parser.BucketSkill].Tokens
+	output := alloc.Buckets[parser.BucketOutput].Tokens
+	file := alloc.Buckets[parser.BucketFile].Tokens
+
+	// Each ~10k-est response is ~1/3 of a2's ~90k available (~28k each). The MCP
+	// response must be in mcp, the Skill response in skill, the Bash response in
+	// output — each far larger than a sliver.
+	if mcp < 20_000 {
+		t.Errorf("mcp bucket = %d, want ~28k (the MCP response) — MCP result still misfiled", mcp)
+	}
+	if skill < 20_000 {
+		t.Errorf("skill bucket = %d, want ~28k (the Skill response)", skill)
+	}
+	if output < 20_000 {
+		t.Errorf("output bucket = %d, want ~28k (the Bash response)", output)
+	}
+
+	// The bug: all three responses (30k est) collapsed into file. After the fix
+	// the file bucket has NO tool_result here (no Read origin), so it stays tiny
+	// or absent — and it must NEVER carry a row named after an MCP server.
+	if file > 5_000 {
+		t.Errorf("file bucket = %d, want ~0 — non-file tool_results must not collapse into file", file)
+	}
+	for _, it := range alloc.Buckets[parser.BucketFile].Items {
+		if it.Name == "grafana" {
+			t.Errorf("MCP server 'grafana' leaked into the file bucket as an item: %+v", it)
+		}
+	}
+
+	// The MCP response consolidates under the server name in the mcp bucket.
+	mustHaveItem(t, alloc.Buckets[parser.BucketMCP], "grafana")
+	mustHaveItem(t, alloc.Buckets[parser.BucketSkill], "caveman")
+}
+
 func mustHaveItem(t *testing.T, bd parser.BucketBreakdown, name string) {
 	t.Helper()
 	for _, it := range bd.Items {

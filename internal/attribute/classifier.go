@@ -10,7 +10,15 @@
 //	type:tool_use, name == "Skill"                 -> skill   (input.command = skill name)
 //	type:tool_use, name has prefix "mcp__"         -> mcp     (mcp__<server>__<tool> -> server)
 //	type:tool_use, anything else (Bash, Edit, ...) -> output  (the model's action surface)
-//	type:tool_result                               -> file    (retrieved content brought back in)
+//	type:tool_result                               -> file    (context-free fallback)
+//
+// The tool_result -> file rule is a context-free FALLBACK: ClassifyBlock looks
+// only at the block itself, and a tool_result alone does not know which tool
+// produced it. During reconciliation (reconcile.go) each tool_result is instead
+// attributed to the bucket of its originating tool_use (matched by tool_use_id):
+// an MCP call's response -> mcp, a Skill's -> skill, a Read's -> file, a Bash's
+// -> output. file is used only when the origin is unknown. So a large MCP query
+// response is counted as mcp window consumption, not misfiled as a file.
 //
 // The system bucket is not derivable from any per-block signal because the
 // initial system prompt is never serialized into message.content — it lives

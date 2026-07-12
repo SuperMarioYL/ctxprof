@@ -79,12 +79,16 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 	// no message.usage. Their bytes are actually part of the NEXT assistant
 	// turn's input_tokens / cache_read. So we fold each user turn's tool_result
 	// blocks into the following assistant turn's reconciliation pool: their
-	// EstTokens join estSum and get scaled alongside the assistant's own output,
-	// landing (per the classifier's tool_result -> file rule) in the file bucket
-	// instead of being skipped entirely. Their item name (the read file_path /
-	// MCP server) is recovered by matching each result's ToolUseID to the
-	// originating tool_use, indexed below.
-	resultName := indexToolUseNames(sess)
+	// EstTokens join estSum and get scaled alongside the assistant's own output
+	// instead of being skipped entirely. Each result is attributed to the bucket
+	// of the tool_use that produced it (an MCP call's response -> mcp, a Read's
+	// -> file, a Skill's -> skill; classifyForAttribution), NOT blindly to file —
+	// otherwise a 40k-token MCP query response, a Bash dump, or a WebFetch body
+	// would all land in the file bucket and the mcp bucket would undercount real
+	// window consumption. Both the item name (the read file_path / MCP server)
+	// and the origin bucket are recovered by matching each result's ToolUseID to
+	// the originating tool_use, indexed below.
+	resultName, resultBucket := indexToolUse(sess)
 	var pendingResults []parser.Block
 
 	systemSeeded := false
@@ -149,9 +153,10 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 		}
 		if estSum == 0 {
 			// All blocks came in at zero estimated weight (e.g. empty
-			// tool_result). Distribute available evenly to the first block's
+			// tool_result). Park the whole available total in the first block's
 			// bucket to keep the balance intact without inventing structure.
-			add(ClassifyBlock(blocks[0]), itemNameFor(blocks[0], ClassifyBlock(blocks[0]), resultName), available)
+			b0Bucket := classifyForAttribution(blocks[0], resultBucket)
+			add(b0Bucket, itemNameFor(blocks[0], b0Bucket, resultName), available)
 			continue
 		}
 
@@ -173,7 +178,7 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 				}
 			}
 			assigned += scaled
-			bucket := ClassifyBlock(b)
+			bucket := classifyForAttribution(b, resultBucket)
 			add(bucket, itemNameFor(b, bucket, resultName), scaled)
 		}
 	}
@@ -198,24 +203,50 @@ func Attribute(sess *parser.Session, windowMax int) parser.Allocation {
 	return alloc
 }
 
-// indexToolUseNames maps each tool_use block's ToolUseID to the display name it
-// classified into (a Read's file_path, an MCP server, a skill name). It lets a
-// tool_result block — which carries the retrieved content but not the originating
-// path — inherit the name of the tool_use that produced it, so a 40k-token file
-// read surfaces as a named row in the file bucket rather than an anonymous blob.
-func indexToolUseNames(sess *parser.Session) map[string]string {
-	names := map[string]string{}
+// indexToolUse maps each tool_use block's ToolUseID to BOTH the bucket it
+// classified into and the display name for that bucket (a Read's file_path, an
+// MCP server, a skill name). It lets a tool_result block — which carries the
+// retrieved content but names neither its bucket nor its path — inherit both
+// from the tool_use that produced it: so a 40k-token MCP query response lands in
+// the mcp bucket under the server's name (not the file bucket), and a 40k-token
+// file read surfaces as a named row in the file bucket rather than an anonymous
+// blob. names only carries entries with a surfacable name; buckets carries every
+// id so a Bash result (unnamed, output bucket) still inherits its origin bucket.
+func indexToolUse(sess *parser.Session) (names map[string]string, buckets map[string]parser.Bucket) {
+	names = map[string]string{}
+	buckets = map[string]parser.Bucket{}
 	for _, turn := range sess.Turns {
 		for _, b := range turn.Blocks {
 			if b.Type != parser.BlockToolUse || b.ToolUseID == "" {
 				continue
 			}
-			if name := ItemName(b, ClassifyBlock(b)); name != "" {
+			bucket := ClassifyBlock(b)
+			buckets[b.ToolUseID] = bucket
+			if name := ItemName(b, bucket); name != "" {
 				names[b.ToolUseID] = name
 			}
 		}
 	}
-	return names
+	return names, buckets
+}
+
+// classifyForAttribution is ClassifyBlock with one refinement used only inside
+// the per-turn reconciliation fold: a tool_result inherits the bucket of the
+// tool_use that produced it (matched by ToolUseID via resultBucket), so an MCP
+// tool call's response lands in mcp, a Skill's in skill, a Read's in file —
+// instead of every tool_result collapsing into file and burying real MCP/skill
+// window consumption. ClassifyBlock itself stays context-free (it cannot see the
+// origin, and callers rely on that); the origin bucket is only known here, where
+// the whole session has been indexed. Falls back to ClassifyBlock (file) when
+// the origin is unknown — e.g. a synthetic / hook-injected tool_result whose
+// tool_use_id matches no tool_use in the session.
+func classifyForAttribution(b parser.Block, resultBucket map[string]parser.Bucket) parser.Bucket {
+	if b.Type == parser.BlockToolResult && b.ToolUseID != "" {
+		if ob, ok := resultBucket[b.ToolUseID]; ok {
+			return ob
+		}
+	}
+	return ClassifyBlock(b)
 }
 
 // itemNameFor is ItemName with one addition: a tool_result block (which the
