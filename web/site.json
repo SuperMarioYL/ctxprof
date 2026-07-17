@@ -6,11 +6,11 @@
   "lang": { "primary": "en", "toggle": true },
   "accent": ["#5566d6", "#4f46e5", "#3a8fd0"],
   "hero": {
-    "eyebrow": { "zh": "本地 · 无模型 · 单二进制", "en": "Local · No model · Single binary" },
-    "headline": { "zh": "看清 20 万 tokens\n到底花在哪", "en": "See where your\n200k tokens went" },
+    "eyebrow": { "zh": "窗口又满了？先看清是谁在占", "en": "Window full again? See who's eating it" },
+    "headline": { "zh": "别再猜是谁\n吃掉了你的上下文", "en": "Stop guessing who\nate your context" },
     "sub": {
-      "zh": "ctxprof 把 Claude Code 会话那个笼统的 token 总数，拆成 system / skill / MCP / file / reasoning / output 六个桶的结构化占用，让你知道该卸载什么。",
-      "en": "ctxprof turns a Claude Code session's flat token total into a structured allocation across six buckets — system, skill, MCP, file, reasoning, output — so you know what to unload."
+      "zh": "给 Claude Code 用的工具 —— 把笼统的 token 总数拆成你实际装进去的东西（skills、MCP、读进来的文件、推理、输出），告诉你该卸掉哪个，而不是下次会话再撞一次墙。",
+      "en": "A tool for Claude Code — splits the flat token total into the things you actually loaded (skills, MCP, files you pulled in, reasoning, output), so you know what to unload instead of hitting the same wall next session."
     },
     "command": "go install github.com/SuperMarioYL/ctxprof/cmd/ctxprof@latest",
     "ctaGithub": { "zh": "在 GitHub 查看", "en": "View on GitHub" },
@@ -18,44 +18,44 @@
   },
   "advantages": [
     {
-      "title": { "zh": "六桶归账", "en": "Six-bucket allocation" },
+      "title": { "zh": "该卸哪个，一眼看清", "en": "See exactly what to cut" },
       "body": {
-        "zh": "每个 block 都归入 system / skill / MCP / file / reasoning / output 之一 —— 火焰树里能看到每个桶占 20 万窗口的比例。",
-        "en": "Every block is classified into system, skill, MCP, file, reasoning or output — the flame tree shows each bucket's share of the 200k window."
+        "zh": "会话快满的时候，它把占用最大的那些东西（某个 skill、某个 MCP、读进来的某个文件）按大小列出来，每个都标了占窗口的份额 —— 你知道该删谁，而不是瞎猜或全删重来。",
+        "en": "When a session nears full, it ranks the biggest consumers (a skill, an MCP, a file you pulled in) by size, each tagged with its share of the window — so you trim the right one instead of guessing or nuking everything."
       },
-      "chips": ["› system / skill / mcp", "› file / reasoning / output"]
+      "chips": ["› biggest consumers, ranked", "› each one's share of the window"]
     },
     {
-      "title": { "zh": "总数精确，占比校准", "en": "Exact totals, calibrated splits" },
+      "title": { "zh": "看着上下文一点点被吃掉", "en": "Watch your context get eaten over time" },
       "body": {
-        "zh": "JSONL 里有每轮真实的 usage 总数，却没有 per-block 字段；ctxprof 按 chars/4 估每个 block，再缩放到那一轮的真实总数 —— 会话总和保持精确，各桶占比是校准过的估计。",
-        "en": "The JSONL carries real per-turn usage totals but no per-block field; ctxprof estimates each block at chars/4, then scales to the turn's real total — the session sum stays exact while bucket splits are calibrated."
+        "zh": "它能横着对比你最近几次会话，让你一眼看到哪一类东西（skills、MCP、文件）在悄悄越长越大 —— 在它把窗口撑爆之前，先把它卸了。",
+        "en": "It compares your recent sessions side by side, so you can see at a glance which kind of thing (skills, MCP, files) is quietly growing — and unload it before it blows the window."
       },
-      "chips": ["› chars/4 estimate", "› scaled to real usage"]
+      "chips": ["› compare sessions side by side", "› spot the creep before it blows"]
     },
     {
-      "title": { "zh": "只诊断，从不改动", "en": "Diagnosis only — read-only" },
+      "title": { "zh": "这次和上次，到底差在哪", "en": "What actually changed between two runs" },
       "body": {
-        "zh": "--cut-candidates 列出占用最大的具名消费者，告诉你该删什么；trend 显示跨会话的逐桶漂移；compare 精确对比两次会话。ctxprof 从不编辑或改写会话。",
-        "en": "--cut-candidates ranks the largest named consumers so you know what to trim; trend shows per-bucket drift across sessions; compare diffs exactly two. ctxprof never edits or rewrites a session."
+        "zh": "对比任意两次会话，告诉你每一类东西各涨了多少、哪些具体项目变大了 —— 精确找到是什么让这次比上次更挤。",
+        "en": "Diff any two sessions and see how much each kind of thing grew, plus which specific items moved — so you pinpoint exactly what made this run tighter than the last."
       },
-      "chips": ["› --cut-candidates N", "› trend / compare"]
+      "chips": ["› exact diff of two sessions", "› per-item deltas"]
     },
     {
-      "title": { "zh": "离线二进制，JSON 输出", "en": "Offline binary, JSON out" },
+      "title": { "zh": "只看，绝不动你的会话", "en": "Looks only — never touches your sessions" },
       "body": {
-        "zh": "一个静态 Go 二进制 —— 无网络请求、回路里没有模型。可输出 allocation_v1.json，直接管道给 jq 或其他工具。",
-        "en": "A single static Go binary — no network calls, no model in the loop. Emit allocation_v1.json and pipe it straight into jq or another tool."
+        "zh": "它只读你本地的会话记录，给出诊断 —— 从不编辑、改写或替你做决定。你看完决定卸什么，它帮你看见，不帮你动手。",
+        "en": "It only reads your local session logs and gives you a diagnosis — it never edits, rewrites, or decides for you. It shows you what's there; you decide what to cut."
       },
-      "chips": ["› no network", "› allocation_v1.json"]
+      "chips": ["› read-only, always", "› never edits your sessions"]
     }
   ],
   "scene": { "kind": "hub-nodes", "nodes": ["system", "skill", "mcp", "file", "reasoning", "output"] },
   "cta": {
-    "headline": { "zh": "profile 你的上一次会话", "en": "Profile your last session" },
+    "headline": { "zh": "给你的上一次会话算笔账", "en": "Account for your last session" },
     "sub": {
-      "zh": "MIT 许可，go install 装好即用 —— 自动发现 ~/.claude/projects/。",
-      "en": "MIT-licensed, go install and run — auto-discovers ~/.claude/projects/."
+      "zh": "MIT 许可，一条命令装好 —— 自动找到你 ~/.claude/projects/ 里的会话，不用手动指。",
+      "en": "MIT-licensed, one command to install — auto-finds the sessions under ~/.claude/projects/, no manual pointing needed."
     },
     "button": { "zh": "在 GitHub 查看", "en": "View on GitHub" }
   },
