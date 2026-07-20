@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
   <a href="https://go.dev/dl/"><img alt="go" src="https://img.shields.io/badge/go-1.24-00ADD8?logo=go&logoColor=white"></a>
   <a href="https://github.com/SuperMarioYL/ctxprof/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-go%20build%20%7C%20vet%20%7C%20test-success"></a>
   <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.6.0-orange"></a>
