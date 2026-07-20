@@ -248,7 +248,7 @@ where the 200k-token context window went, broken into six buckets:
   release — see `assets/README.md`).
 - `.github/workflows/ci.yml`: `go build`, `go vet`, `go test -race` on push
   and pull request.
-- MIT license, `.gitignore` covering build output and local agent state.
+- Apache 2.0 license, `.gitignore` covering build output and local agent state.
 
 ### Out of scope for v0.1.0
 Web UI / TUI dashboard; real-time tail mode; Codex / Cursor / Aider
