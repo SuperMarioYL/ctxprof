@@ -292,8 +292,14 @@ func runTrend(cmd *cobra.Command, args []string) error {
 func trendLabel(path string, alloc parser.Allocation) string {
 	if alloc.SessionID != "" {
 		id := alloc.SessionID
-		if len(id) > 8 {
-			id = id[:8]
+		// Truncate at 8 RUNES, not 8 bytes. A byte-index slice (`id[:8]`) cuts a
+		// multibyte (CJK/emoji) sessionId mid-rune and emits invalid UTF-8 into the
+		// trend/compare column header — the same defect class the v0.2
+		// fix-truncate-byte-slice-multibyte removed for item names. Claude Code
+		// sessionIds are ULIDs (ASCII) so this is latent today, but the schema is
+		// harness-agnostic and a non-ASCII sessionId would corrupt the header.
+		if r := []rune(id); len(r) > 8 {
+			id = string(r[:8])
 		}
 		return id
 	}

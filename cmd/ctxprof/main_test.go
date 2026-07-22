@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"github.com/SuperMarioYL/ctxprof/internal/parser"
 )
 
 // writeSession drops a minimal two-turn Claude Code JSONL file and returns its path.
@@ -287,8 +290,93 @@ func TestCompareJSON(t *testing.T) {
 		t.Fatalf("compare --json failed: %v\n%s", err, out)
 	}
 	for _, want := range []string{`"schema_version": "compare/v1"`, `"bucket_deltas"`, `"old"`, `"new"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("compare --json missing %q:\n%s", want, out)
+			if !strings.Contains(out, want) {
+				t.Errorf("compare --json missing %q:\n%s", want, out)
+			}
 		}
+}
+
+// TestTrendLabel_MultibyteSessionIDNoMidRune is the regression test for
+// fix-trend-label-byte-slice-session-id: trendLabel (and compareLabel, which
+// delegates to it) shortened the session id via `id = id[:8]`, a byte-index slice
+// that cuts a multibyte (CJK/emoji) sessionId mid-rune and emits invalid UTF-8
+// into the trend/compare column header — the same defect class the v0.2
+// fix-truncate-byte-slice-multibyte removed for item names (tree_test.go pins
+// utf8.ValidString against it). The fix truncates at 8 RUNES so the label never
+// splits a multibyte rune. Claude Code sessionIds are ULIDs (ASCII) so this is
+// latent today, but the schema is harness-agnostic: a non-ASCII sessionId (a
+// future harness, or a hand-fed JSONL) would corrupt the rendered header. The
+// tree headline (alloc.SessionID verbatim) and --json are unaffected.
+//
+// A direct trendLabel test is the reliable guard: render.Trend/Compare pass the
+// label through the display-width-aware truncate() (internal/render/tree.go),
+// which heals invalid bytes into U+FFFD — so an end-to-end utf8.Valid on the
+// rendered output could PASS even with the byte-slice bug. Asserting rune
+// count == 8 on the RAW label pins the fix at its source.
+func TestTrendLabel_MultibyteSessionIDNoMidRune(t *testing.T) {
+	cases := []struct {
+		name string
+		// session is the multibyte (or ASCII-control) sessionId fed in.
+		session string
+		// buggyValid reports whether the OLD byte slice `session[:8]` is itself
+		// valid UTF-8. For 3-byte CJK runes (8 mod 3 != 0) it is NOT, so those
+		// cases genuinely exercise the mid-rune cut. A 10-char ASCII id lands on a
+		// rune boundary (8 mod 1 == 0) so the byte slice is valid — that case
+		// confirms the fix is behavior-preserving for the common ULID path, not
+		// that it alone catches the bug.
+		buggyValid bool
+	}{
+		{"short CJK (3 runes, 9 bytes — bug corrupts even a 3-rune id)", "短会话", false},
+		{"pure CJK (3-byte runes)", "上下文窗口分析工具一二三四五六七八九十", false},
+		{"mixed CJK + ascii", "会话编号01上下文窗口分析工具测试数据", false},
+		{"emoji + CJK mix", "😀上下文窗口分析工具测试😀数据一二三", false},
+		{"ascii ULID-like (behavior preserved)", "abc123ulid", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			alloc := parser.Allocation{SessionID: tc.session}
+			label := trendLabel("irrelevant.jsonl", alloc)
+
+			// Core regression assertion (mirrors tree_test.go's utf8.ValidString):
+			// the label must never split a multibyte rune.
+			if !utf8.ValidString(label) {
+				t.Fatalf("trendLabel(%q) = %q is not valid UTF-8 (mid-rune split)", tc.session, label)
+			}
+
+			// Truncation is at 8 RUNES, not 8 bytes: a >8-rune id yields exactly 8
+			// runes; a <=8-rune id is returned whole.
+			sessionRunes := []rune(tc.session)
+			want := 8
+			if len(sessionRunes) < 8 {
+				want = len(sessionRunes)
+			}
+			if r := []rune(label); len(r) != want {
+				t.Errorf("trendLabel(%q) = %q has %d runes, want %d (8 runes not 8 bytes)", tc.session, label, len(r), want)
+			}
+
+			// No data corruption beyond truncation: the label is the id's first
+			// `want` runes, verbatim.
+			wantLabel := string(sessionRunes[:want])
+			if label != wantLabel {
+				t.Errorf("trendLabel(%q) = %q, want first %d runes %q", tc.session, label, want, wantLabel)
+			}
+
+			// Precondition (revert-verified): the OLD byte slice must have been
+			// invalid UTF-8 for the multibyte cases, so each such case genuinely
+			// guards the bug. If it ever reads valid, the case no longer exercises a
+			// mid-rune cut and must be replaced.
+			buggy := tc.session
+			if len(buggy) > 8 {
+				buggy = buggy[:8]
+			}
+			if utf8.ValidString(buggy) != tc.buggyValid {
+				t.Errorf("precondition for %q: byte-slice `[:8]` valid=%v, want %v (case no longer guards the bug)", tc.session, utf8.ValidString(buggy), tc.buggyValid)
+			}
+
+			// compareLabel delegates to trendLabel — it must stay valid and equal.
+			if got := compareLabel("irrelevant.jsonl", alloc); got != label || !utf8.ValidString(got) {
+				t.Errorf("compareLabel diverged from trendLabel or is invalid UTF-8: got %q", got)
+			}
+		})
 	}
 }
