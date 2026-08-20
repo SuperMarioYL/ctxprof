@@ -100,6 +100,39 @@ func TestTopCutCandidates_ZeroWindowOccupancy(t *testing.T) {
 	}
 }
 
+func TestTopCutCandidates_WindowShareCappedAtOneForRecurringItem(t *testing.T) {
+	// Regression for the recurring-item >100% bug. it.Tokens is cumulative across
+	// turns (reconcile.go's `add` accumulates per name: bucketItems[bucket][name]
+	// += n over the turn loop), while WindowOccupancy is the peak single-turn
+	// footprint. A recurring named consumer — a file Read twice, a Skill re-loaded,
+	// repeated MCP calls — makes the cumulative total exceed the single-turn peak,
+	// so a naive Tokens/WindowOccupancy crosses 1.0 and prints ">100% of window"
+	// in --cut-candidates, breaking the (0..1) contract. Concretely: a ~24k-token
+	// file read twice over a ~12k peak window yields 2.0 pre-fix.
+	a := parser.Allocation{
+		WindowOccupancy: 12_000,
+		WindowMax:       200_000,
+		Buckets: map[parser.Bucket]parser.BucketBreakdown{
+			parser.BucketFile: {
+				Tokens: 24_000,
+				Items:  []parser.Item{{Name: "docs/big.md", Tokens: 24_000}},
+			},
+		},
+	}
+	cuts := TopCutCandidates(a, 1)
+	if len(cuts) != 1 {
+		t.Fatalf("want 1 candidate, got %d: %+v", len(cuts), cuts)
+	}
+	if got := cuts[0].WindowShare; got > 1.0 {
+		t.Fatalf("recurring item's window_share must be clamped to <= 1.0, got %f (tokens=%d, occ=%d)",
+			got, cuts[0].Tokens, a.WindowOccupancy)
+	}
+	// Pre-fix the share was 2.0 (24k/12k); the clamp must pin it to exactly 1.0.
+	if got := cuts[0].WindowShare; got != 1.0 {
+		t.Errorf("want window_share == 1.0 after clamp, got %f", got)
+	}
+}
+
 func TestTopCutCandidates_DeterministicTieBreak(t *testing.T) {
 	a := parser.Allocation{
 		WindowOccupancy: 1000,

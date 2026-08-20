@@ -5,6 +5,30 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-08-20
+
+Correctness pass. One fix over the shipped v0.7.0 source — no new features, no new
+deps, still read-only and terminal-only. It closes a contract violation in the
+`--cut-candidates` window-share number.
+
+### Fixed
+- **`cut_candidates[].window_share` is now clamped to `1.0` and can no longer exceed
+  100% of the window.** `WindowShare` is documented as a `(0..1)` fraction of the
+  session's peak single-turn window occupancy, but the computation divided the
+  item's *cumulative* token total by the *single-turn* peak: `reconcile.go`'s `add`
+  accumulates `bucketItems[bucket][name] += n` across every turn, while
+  `WindowOccupancy` tracks the peak one-turn footprint (`max` of `WindowFootprint()`
+  per turn). Any recurring named consumer — a file `Read` twice, a `Skill` re-loaded,
+  repeated MCP calls — makes the cumulative total exceed the single-turn peak, so
+  `window_share` crossed `1.0` and `--cut-candidates` printed nonsensical ">100% of
+  window" rows (a ~12k-token file read twice over a ~12k peak window yielded ~1.83;
+  the regression test uses 24k cumulative over a 12k peak, i.e. `2.0` pre-fix). The
+  share is now capped at `1.0` after the division in
+  `internal/attribute/topconsumers.go`; the legitimate single-turn case (cumulative
+  == peak, share ≤ `1.0` naturally) is unchanged, and the `WindowOccupancy == 0`
+  degenerate path still yields `0`. Covered by `topconsumers_test.go`
+  (`TestTopCutCandidates_WindowShareCappedAtOneForRecurringItem`).
+
 ## [0.6.0] — 2026-07-13
 
 Correctness pass. One fix over the shipped v0.5 source — no new features, no new deps,

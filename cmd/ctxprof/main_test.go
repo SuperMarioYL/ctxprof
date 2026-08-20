@@ -290,10 +290,10 @@ func TestCompareJSON(t *testing.T) {
 		t.Fatalf("compare --json failed: %v\n%s", err, out)
 	}
 	for _, want := range []string{`"schema_version": "compare/v1"`, `"bucket_deltas"`, `"old"`, `"new"`} {
-			if !strings.Contains(out, want) {
-				t.Errorf("compare --json missing %q:\n%s", want, out)
-			}
+		if !strings.Contains(out, want) {
+			t.Errorf("compare --json missing %q:\n%s", want, out)
 		}
+	}
 }
 
 // TestTrendLabel_MultibyteSessionIDNoMidRune is the regression test for

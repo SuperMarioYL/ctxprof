@@ -8,7 +8,7 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href="https://go.dev/dl/"><img alt="go" src="https://img.shields.io/badge/go-1.24-00ADD8?logo=go&logoColor=white"></a>
   <a href="https://github.com/SuperMarioYL/ctxprof/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-go%20build%20%7C%20vet%20%7C%20test-success"></a>
-  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.5.0-orange"></a>
+  <a href="https://github.com/SuperMarioYL/ctxprof/releases"><img alt="release" src="https://img.shields.io/badge/release-v0.8.0-orange"></a>
   <a href="#"><img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-ready-7c3aed"></a>
   <a href="#"><img alt="MCP" src="https://img.shields.io/badge/MCP-aware-0ea5e9"></a>
 </p>

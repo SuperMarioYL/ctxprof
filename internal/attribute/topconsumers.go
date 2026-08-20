@@ -15,7 +15,11 @@ import (
 //   - Tokens: the item's reconciled token count.
 //   - WindowShare: Tokens as a fraction (0..1) of the session's peak single-turn
 //     window occupancy — i.e. how much of the window this single item is worth.
-//     When WindowOccupancy is 0 (degenerate/empty session) WindowShare is 0.
+//     Tokens is cumulative across turns (reconcile.go accumulates per name),
+//     while WindowOccupancy is a single-turn peak, so a recurring item (a file
+//     Read twice, a Skill re-loaded) can have Tokens > WindowOccupancy; the share
+//     is clamped to 1.0 to keep the (0..1) contract. When WindowOccupancy is 0
+//     (degenerate/empty session) WindowShare is 0.
 type CutCandidate struct {
 	Bucket      string  `json:"bucket"`
 	Name        string  `json:"name"`
@@ -47,6 +51,12 @@ func TopCutCandidates(alloc parser.Allocation, n int) []CutCandidate {
 			share := 0.0
 			if occ > 0 {
 				share = float64(it.Tokens) / float64(occ)
+				// it.Tokens accumulates across turns while occ is the peak
+				// single-turn footprint, so a recurring item can exceed 1.0;
+				// clamp to honor the (0..1) contract on WindowShare.
+				if share > 1.0 {
+					share = 1.0
+				}
 			}
 			out = append(out, CutCandidate{
 				Bucket:      string(bucket),
