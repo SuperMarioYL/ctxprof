@@ -2,6 +2,7 @@ package attribute_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/SuperMarioYL/ctxprof/internal/attribute"
@@ -453,4 +454,66 @@ func mustHaveItem(t *testing.T, bd parser.BucketBreakdown, name string) {
 		}
 	}
 	t.Errorf("item %q missing from bucket items %+v", name, bd.Items)
+}
+
+// --- fix: tool-result image content dropped from estimate --------------------
+//
+// A tool_result whose content is a single image sub-block (a Read of a PNG/JPG,
+// or an MCP tool returning an image) was sized to 0 by toolResultText's
+// text-only flatten. The per-turn scaler then handed the result's real share
+// to the other blocks — typically the assistant text block -> output — so an
+// image Read that consumed ~50k input tokens was reported under output, not
+// file: the opposite of the v0.6 "a Read tool_result -> file" guarantee.
+// Empirically (pre-fix): input_tokens:50000 reported file:238, output:50362.
+//
+// The fix sizes image content with a non-zero estimate so the proportional
+// scaler routes its share through classifyForAttribution to the origin bucket
+// (file for a Read). This test drives the full parser (so toolResultSizing is
+// exercised, not bypassed by a pre-set EstTokens) and asserts the end-to-end
+// misattribution is corrected.
+func TestAttribute_ImageToolResultLandsInFileBucket(t *testing.T) {
+	const readPath = "screenshots/panel.png"
+	// 100k base64 chars -> imageEstimate floor 1500 (non-zero, dominates the
+	// tiny assistant text block so the scaler attributes the image's share to file).
+	const dataLen = 100_000
+	jsonl := `{"sessionId":"imgattr","type":"user","message":{"role":"user","content":"show me the screenshot"}}
+{"sessionId":"imgattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reading it"},{"type":"tool_use","id":"tu_read_1","name":"Read","input":{"file_path":"` + readPath + `"}}],"usage":{"input_tokens":200,"output_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"sessionId":"imgattr","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_read_1","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + strings.Repeat("A", dataLen) + `"}}]}]}}
+{"sessionId":"imgattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the chart shows a spike"}],"usage":{"input_tokens":50000,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`
+
+	sess, err := parser.ParseReader(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("ParseReader: %v", err)
+	}
+	alloc := attribute.Attribute(sess, 200_000)
+
+	// Sum invariant: sum of all buckets == sum of per-turn usage totals.
+	realTotal := 0
+	for _, tr := range sess.Turns {
+		if tr.Usage != nil {
+			realTotal += tr.Usage.Total()
+		}
+	}
+	bucketSum := 0
+	for _, bd := range alloc.Buckets {
+		bucketSum += bd.Tokens
+	}
+	if bucketSum != realTotal {
+		t.Fatalf("bucket sum %d != real total %d (reconciliation broke the balance)", bucketSum, realTotal)
+	}
+
+	file := alloc.Buckets[parser.BucketFile].Tokens
+	output := alloc.Buckets[parser.BucketOutput].Tokens
+
+	// The image read's ~50k input must land in file (the Read's origin bucket),
+	// not in output (the assistant text). Pre-fix this was file ~238, output ~50362.
+	if file <= output {
+		t.Errorf("file %d should exceed output %d — image read misattributed to output", file, output)
+	}
+	if file < 25_000 {
+		t.Errorf("file = %d, want >25000 (the image read's ~50k input must land in file, not output)", file)
+	}
+
+	// The image content inherits the originating Read's path as its item name.
+	mustHaveItem(t, alloc.Buckets[parser.BucketFile], readPath)
 }

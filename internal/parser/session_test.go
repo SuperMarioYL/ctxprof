@@ -147,3 +147,38 @@ func TestParseReader_SkipsUnknownAndBlankLines(t *testing.T) {
 		t.Errorf("turn indices = %d,%d, want 0,1", sess.Turns[0].Idx, sess.Turns[1].Idx)
 	}
 }
+
+// --- fix: tool-result image content dropped from estimate ---------------------
+//
+// A tool_result whose content is a single image sub-block (a Read of a PNG/JPG,
+// or an MCP tool returning an image) was sized to 0 by the text-only flatten,
+// because its ForEach only concatenated type:"text" sub-blocks. The image
+// branch must now contribute a non-zero estimate. This drives toolResultSizing
+// through the public parser (not a pre-set Block.EstTokens), so the image
+// dropping is actually exercised.
+func TestParseReader_ToolResultImageSizesNonZero(t *testing.T) {
+	// A 100k-char base64 payload — far larger than any text block, exercising
+	// the image branch of toolResultSizing. len/750 = 133, floored to 1500.
+	const dataLen = 100_000
+	jsonl := `{"sessionId":"img","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + strings.Repeat("A", dataLen) + `"}}]}]}}`
+
+	sess, err := parser.ParseReader(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("ParseReader: %v", err)
+	}
+	blocks := sess.Turns[0].Blocks
+	if len(blocks) != 1 || blocks[0].Type != parser.BlockToolResult {
+		t.Fatalf("got blocks %+v, want one tool_result", blocks)
+	}
+	if blocks[0].EstTokens <= 0 {
+		t.Errorf("image tool_result EstTokens = %d, want >0 (image content silently dropped by text-only flatten)", blocks[0].EstTokens)
+	}
+	if blocks[0].EstTokens != 1500 {
+		t.Errorf("image tool_result EstTokens = %d, want 1500 (per-image floor for a sub-cap base64)", blocks[0].EstTokens)
+	}
+	// An image-only result carries no text, so the excerpt must stay empty
+	// rather than leak base64 into the stored RawExcerpt.
+	if blocks[0].RawExcerpt != "" {
+		t.Errorf("image tool_result RawExcerpt = %q, want empty (no base64 in excerpt)", blocks[0].RawExcerpt)
+	}
+}

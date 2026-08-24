@@ -175,10 +175,10 @@ func blockFromJSON(b gjson.Result) (Block, bool) {
 		}, true
 
 	case "tool_result":
-		text := toolResultText(b.Get("content"))
+		text, imgTokens := toolResultSizing(b.Get("content"))
 		return Block{
 			Type:       BlockToolResult,
-			EstTokens:  estimate.Tokens(text),
+			EstTokens:  estimate.Tokens(text) + imgTokens,
 			RawExcerpt: excerpt(text),
 			ToolUseID:  b.Get("tool_use_id").String(),
 		}, true
@@ -186,27 +186,62 @@ func blockFromJSON(b gjson.Result) (Block, bool) {
 	return Block{}, false
 }
 
-// toolResultText flattens the content payload of a tool_result block down to
-// a single string for sizing purposes. The payload may be a bare string or
-// an array of {type:"text", text:"..."} entries.
-func toolResultText(c gjson.Result) string {
+// toolResultSizing flattens the content payload of a tool_result block into a
+// text sizing string (later BPE-tokenized) plus a direct token estimate for
+// any image sub-blocks. The payload may be a bare string or an array of
+// {type:"text", text:"..."} and {type:"image", source:{type:"base64",
+// media_type:"image/...", data:"<base64>"}} entries.
+//
+// Image content is a base64 payload (source.data) that the text-only flattening
+// silently dropped, sizing an image-only Read/MCP result to 0. A zero estimate
+// makes the per-turn scaler hand the result's real share to the other blocks
+// (reconcile.go), misattributing a Read's image input to output. imageEstimate
+// therefore contributes a non-zero, size-bounded estimate so the proportional
+// scaler routes the image's share to its origin bucket (file for a Read, mcp
+// for an MCP image). The text branch is unchanged.
+func toolResultSizing(c gjson.Result) (text string, imageTokens int) {
 	if !c.Exists() {
-		return ""
+		return "", 0
 	}
 	if c.Type == gjson.String {
-		return c.String()
+		return c.String(), 0
 	}
 	if !c.IsArray() {
-		return ""
+		return "", 0
 	}
 	var sb strings.Builder
 	c.ForEach(func(_, sub gjson.Result) bool {
-		if sub.Get("type").String() == "text" {
+		switch sub.Get("type").String() {
+		case "text":
 			sb.WriteString(sub.Get("text").String())
+		case "image":
+			imageTokens += imageEstimate(sub.Get("source.data").String())
 		}
 		return true
 	})
-	return sb.String()
+	return sb.String(), imageTokens
+}
+
+// imageEstimate is a coarse, non-zero token estimate for a base64 image
+// payload. The JSONL records no per-image token count; Claude's vision cost
+// depends on tiling the decoded pixels, which is not recoverable here. The
+// estimate only needs to be non-zero and roughly size-proportional so the
+// per-turn scaler attributes the image's real token share to its origin bucket
+// instead of dropping it. A floor guarantees non-zero; a cap bounds it.
+const (
+	imageEstFloor = 1500
+	imageEstCeil  = 5000
+)
+
+func imageEstimate(base64Data string) int {
+	est := len(base64Data) / 750
+	if est < imageEstFloor {
+		est = imageEstFloor
+	}
+	if est > imageEstCeil {
+		est = imageEstCeil
+	}
+	return est
 }
 
 // resultToMap converts a gjson object into a plain map for the classifier
