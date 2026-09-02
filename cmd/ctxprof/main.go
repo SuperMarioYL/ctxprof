@@ -16,9 +16,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is the build version, injected at release time by GoReleaser via
-// -ldflags "-X main.version=...". It defaults to a dev marker for local builds.
-var version = "v0.1.0-dev"
+// version is the build version. GoReleaser injects it at release time via
+// -ldflags "-X main.version={{.Version}}" (see .goreleaser.yaml); the value below is
+// the fallback used when no ldflags are applied — i.e. by `go install ...@latest`
+// (the documented install method in README.md and web/site.json) and by `go test`.
+// It must carry the real release number and stay in lockstep with the VERSION file
+// (asserted by TestVersionVarTracksVersionFile), so a no-ldflags build reports the
+// shipped version instead of a stale dev marker.
+var version = "0.10.0"
 
 var (
 	flagJSON          bool

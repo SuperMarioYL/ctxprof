@@ -3,6 +3,7 @@
   "name": "ctxprof",
   "github": "https://github.com/SuperMarioYL/ctxprof",
   "host": "ctxprof.lei6393.com",
+  "meta": { "content_version": "0.10.0" },
   "lang": { "primary": "en", "toggle": true },
   "accent": ["#5566d6", "#4f46e5", "#3a8fd0"],
   "hero": {

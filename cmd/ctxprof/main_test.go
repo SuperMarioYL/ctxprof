@@ -380,3 +380,32 @@ func TestTrendLabel_MultibyteSessionIDNoMidRune(t *testing.T) {
 		})
 	}
 }
+
+// TestVersionVarTracksVersionFile is the regression test for
+// fix-version-var-dev-marker-drift: main.version defaulted to the hardcoded
+// "v0.1.0-dev" marker and was only set via GoReleaser -ldflags at release. The
+// documented install method (`go install github.com/SuperMarioYL/ctxprof/cmd/ctxprof@latest`
+// in README.md and web/site.json) applies no ldflags, so every go-install user ran
+// `ctxprof version` and saw "ctxprof v0.1.0-dev" instead of the shipped release —
+// while main.version and the VERSION file silently drifted across the v0.8.0/v0.9.0
+// releases. The var must now carry the real release number and stay in lockstep with
+// the VERSION file, asserted here. Pre-fix (v0.9.0): version == "v0.1.0-dev" and the
+// VERSION file read "0.8.0", so both assertions below FAIL. Post-fix: version is the
+// real release and equals the VERSION file.
+func TestVersionVarTracksVersionFile(t *testing.T) {
+	if version == "v0.1.0-dev" {
+		t.Fatalf("main.version is the dev marker %q — `go install ...@latest` (no ldflags) reports the wrong version", version)
+	}
+	raw, err := os.ReadFile("../../VERSION")
+	if err != nil {
+		t.Fatalf("read VERSION file: %v", err)
+	}
+	want := strings.TrimSpace(string(raw))
+	if version != want {
+		t.Errorf("main.version = %q, VERSION file = %q — version var must track the VERSION file (drift); run the version bump so both carry the release number", version, want)
+	}
+	// Sanity: the reported version is non-empty and dotted (e.g. "0.10.0").
+	if version == "" || !strings.Contains(version, ".") {
+		t.Errorf("main.version = %q, want a dotted release number", version)
+	}
+}

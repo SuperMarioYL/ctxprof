@@ -5,6 +5,36 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] — 2026-09-02
+
+Correctness pass. One fix over the shipped v0.9.0 source — no new features, no new
+deps, still read-only and terminal-only. It closes a version-reporting defect that
+the documented `go install` path inherited.
+
+### Fixed
+- **`ctxprof version` now reports the real release for `go install ...@latest`
+  users instead of the `v0.1.0-dev` dev marker, and the version var is
+  lockstep-guarded against the VERSION file.** `main.version`
+  (cmd/ctxprof/main.go) defaulted to the hardcoded string `v0.1.0-dev` and was
+  only overridden at release via GoReleaser's `-ldflags "-X main.version=..."`.
+  The documented install method in the README and web/site.json is
+  `go install github.com/SuperMarioYL/ctxprof/cmd/ctxprof@latest`, which applies
+  no ldflags, so every go-install user ran `ctxprof version` and saw
+  `ctxprof v0.1.0-dev` instead of the shipped release. The drift was real and
+  recurring: the v0.8.0 and v0.9.0 tags both shipped with the var still at the dev
+  marker, the VERSION file was never bumped for v0.9.0 (it still read `0.8.0` at
+  the v0.9.0 tag), and web/site.json carried no `meta.content_version` at all —
+  there was no lockstep guard, so the release surfaces silently diverged across
+  two releases while GoReleaser ldflags masked the var for the release binaries.
+  The var now carries the real release number (`0.10.0`, matching the
+  GoReleaser `{{.Version}}` no-`v` format and the VERSION file /
+  `## [0.10.0]` CHANGELOG format); the GoReleaser ldflags override still wins for
+  release binaries, the default just stops lying for the go-install path.
+  Covered by `cmd/ctxprof/main_test.go` (`TestVersionVarTracksVersionFile`),
+  which asserts `main.version` is not the dev marker and equals the VERSION file
+  content. The version-bump surfaces (VERSION, CHANGELOG, web/site.json
+  `meta.content_version`) are aligned to `0.10.0`.
+
 ## [0.8.0] — 2026-08-20
 
 Correctness pass. One fix over the shipped v0.7.0 source — no new features, no new
