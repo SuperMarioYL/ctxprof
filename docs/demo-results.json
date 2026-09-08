@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "source_revision": "76a04be51b0f038abbf568ce17a2bbe819dbfebe",
+  "scope": "Read-only profiling of the shipped synthetic Claude Code JSONL session; per-bucket attribution is an estimate reconciled to recorded usage.",
+  "steps": [
+    {
+      "label": "Recorded run",
+      "body": "Read-only profiling of the shipped synthetic Claude Code JSONL session; per-bucket attribution is an estimate reconciled to recorded usage.",
+      "command": "go run ./cmd/ctxprof --session examples/sample-session.jsonl",
+      "output": "session 01J0Z5K3X4SAMPLEPROFILE — 23,180 / 200,000 tokens (12% of window, peak single-turn footprint)\n  46,200 tokens cumulative throughput (re-counts the cached prefix each turn; not window occupancy)\n├── system     ░░░░░░░░░░░░░░     1,050  (2.3%) ~\n├── skill      █░░░░░░░░░░░░░     3,768  (8.2%)\n│   └── caveman                         3,768\n├── mcp        █████░░░░░░░░░    18,508  (40.1%) ~\n│   └── grafana                        15,358\n├── file       █░░░░░░░░░░░░░     4,337  (9.4%)\n│   └── docs/incidents/2026-05.md       4,337\n├── reasoning  ███░░░░░░░░░░░     9,945  (21.5%)\n└── output     ██░░░░░░░░░░░░     8,592  (18.6%)\n\nnote: bucket numbers are calibrated estimates reconciled to real per-turn message.usage totals.\n      rows marked ~ (system, mcp) are approximated from the first turn's cache_creation_input_tokens."
+    }
+  ]
+}

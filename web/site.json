@@ -1,64 +1,215 @@
 {
-  "schema": 1,
+  "schema": 3,
   "name": "ctxprof",
   "github": "https://github.com/SuperMarioYL/ctxprof",
   "host": "ctxprof.lei6393.com",
-  "meta": { "content_version": "0.10.0" },
-  "lang": { "primary": "en", "toggle": true },
-  "accent": ["#5566d6", "#4f46e5", "#3a8fd0"],
+  "palette": "auto",
+  "lang": {
+    "primary": "en",
+    "toggle": true
+  },
+  "meta": {
+    "visual_style": "neon-particle",
+    "demo_source": "docs/demo-results.json"
+  },
   "hero": {
-    "eyebrow": { "zh": "窗口又满了？先看清是谁在占", "en": "Window full again? See who's eating it" },
-    "headline": { "zh": "别再猜是谁\n吃掉了你的上下文", "en": "Stop guessing who\nate your context" },
-    "sub": {
-      "zh": "给 Claude Code 用的工具 —— 把笼统的 token 总数拆成你实际装进去的东西（skills、MCP、读进来的文件、推理、输出），告诉你该卸掉哪个，而不是下次会话再撞一次墙。",
-      "en": "A tool for Claude Code — splits the flat token total into the things you actually loaded (skills, MCP, files you pulled in, reasoning, output), so you know what to unload instead of hitting the same wall next session."
+    "headline": {
+      "en": "See what occupies your context window.",
+      "zh": "看清上下文窗口被什么占用。"
     },
-    "command": "go install github.com/SuperMarioYL/ctxprof/cmd/ctxprof@latest",
-    "ctaGithub": { "zh": "在 GitHub 查看", "en": "View on GitHub" },
-    "scroll": { "zh": "向下滚动", "en": "Scroll" }
+    "sub": {
+      "en": "ctxprof reads Claude Code session logs and attributes recorded usage to system, skill, MCP, file, reasoning and output buckets.",
+      "zh": "ctxprof 读取 Claude Code 会话日志，将记录的用量归因到系统、Skill、MCP、文件、推理和输出六类。"
+    },
+    "href": "#quickstart"
   },
   "advantages": [
     {
-      "title": { "zh": "该卸哪个，一眼看清", "en": "See exactly what to cut" },
-      "body": {
-        "zh": "会话快满的时候，它把占用最大的那些东西（某个 skill、某个 MCP、读进来的某个文件）按大小列出来，每个都标了占窗口的份额 —— 你知道该删谁，而不是瞎猜或全删重来。",
-        "en": "When a session nears full, it ranks the biggest consumers (a skill, an MCP, a file you pulled in) by size, each tagged with its share of the window — so you trim the right one instead of guessing or nuking everything."
+      "title": {
+        "en": "Six useful buckets",
+        "zh": "六类用量归因"
       },
-      "chips": ["› biggest consumers, ranked", "› each one's share of the window"]
+      "body": {
+        "en": "Inspect system, skills, MCP, files, reasoning and output.",
+        "zh": "检查系统、Skill、MCP、文件、推理和输出。"
+      }
     },
     {
-      "title": { "zh": "看着上下文一点点被吃掉", "en": "Watch your context get eaten over time" },
-      "body": {
-        "zh": "它能横着对比你最近几次会话，让你一眼看到哪一类东西（skills、MCP、文件）在悄悄越长越大 —— 在它把窗口撑爆之前，先把它卸了。",
-        "en": "It compares your recent sessions side by side, so you can see at a glance which kind of thing (skills, MCP, files) is quietly growing — and unload it before it blows the window."
+      "title": {
+        "en": "Separate peak from throughput",
+        "zh": "区分峰值与吞吐"
       },
-      "chips": ["› compare sessions side by side", "› spot the creep before it blows"]
+      "body": {
+        "en": "Cached prefixes are not treated as fresh window capacity on every turn.",
+        "zh": "累计重复前缀与窗口容量分别展示。"
+      }
     },
     {
-      "title": { "zh": "这次和上次，到底差在哪", "en": "What actually changed between two runs" },
-      "body": {
-        "zh": "对比任意两次会话，告诉你每一类东西各涨了多少、哪些具体项目变大了 —— 精确找到是什么让这次比上次更挤。",
-        "en": "Diff any two sessions and see how much each kind of thing grew, plus which specific items moved — so you pinpoint exactly what made this run tighter than the last."
+      "title": {
+        "en": "Compare before trimming",
+        "zh": "先比较再精简"
       },
-      "chips": ["› exact diff of two sessions", "› per-item deltas"]
-    },
-    {
-      "title": { "zh": "只看，绝不动你的会话", "en": "Looks only — never touches your sessions" },
       "body": {
-        "zh": "它只读你本地的会话记录，给出诊断 —— 从不编辑、改写或替你做决定。你看完决定卸什么，它帮你看见，不帮你动手。",
-        "en": "It only reads your local session logs and gives you a diagnosis — it never edits, rewrites, or decides for you. It shows you what's there; you decide what to cut."
-      },
-      "chips": ["› read-only, always", "› never edits your sessions"]
+        "en": "Trend and compare operate on explicit session files.",
+        "zh": "trend 与 compare 可分析明确指定的会话文件。"
+      }
     }
   ],
-  "scene": { "kind": "hub-nodes", "nodes": ["system", "skill", "mcp", "file", "reasoning", "output"] },
-  "cta": {
-    "headline": { "zh": "给你的上一次会话算笔账", "en": "Account for your last session" },
-    "sub": {
-      "zh": "MIT 许可，一条命令装好 —— 自动找到你 ~/.claude/projects/ 里的会话，不用手动指。",
-      "en": "MIT-licensed, one command to install — auto-finds the sessions under ~/.claude/projects/, no manual pointing needed."
+  "demo": {
+    "title": {
+      "en": "Run it on a complete example",
+      "zh": "运行完整示例"
     },
-    "button": { "zh": "在 GitHub 查看", "en": "View on GitHub" }
+    "note": {
+      "en": "Read the complete synthetic session in examples/sample-session.jsonl and render its allocation tree.",
+      "zh": "读取 examples/sample-session.jsonl 中的完整合成会话，并输出归因树。"
+    },
+    "source": "https://github.com/SuperMarioYL/ctxprof/blob/main/docs/demo-results.json",
+    "steps": [
+      {
+        "label": "Recorded run",
+        "body": "Read-only profiling of the shipped synthetic Claude Code JSONL session; per-bucket attribution is an estimate reconciled to recorded usage.",
+        "command": "go run ./cmd/ctxprof --session examples/sample-session.jsonl",
+        "output": "session 01J0Z5K3X4SAMPLEPROFILE — 23,180 / 200,000 tokens (12% of window, peak single-turn footprint)\n  46,200 tokens cumulative throughput (re-counts the cached prefix each turn; not window occupancy)\n├── system     ░░░░░░░░░░░░░░     1,050  (2.3%) ~\n├── skill      █░░░░░░░░░░░░░     3,768  (8.2%)\n│   └── caveman                         3,768\n├── mcp        █████░░░░░░░░░    18,508  (40.1%) ~\n│   └── grafana                        15,358\n├── file       █░░░░░░░░░░░░░     4,337  (9.4%)\n│   └── docs/incidents/2026-05.md       4,337\n├── reasoning  ███░░░░░░░░░░░     9,945  (21.5%)\n└── output     ██░░░░░░░░░░░░     8,592  (18.6%)\n\nnote: bucket numbers are calibrated estimates reconciled to real per-turn message.usage totals.\n      rows marked ~ (system, mcp) are approximated from the first turn's cache_creation_input_tokens.",
+        "image": "/assets/presentation/demo-0-light.svg",
+        "imageDark": "/assets/presentation/demo-0-dark.svg"
+      }
+    ]
   },
-  "footer": { "tag": { "zh": "开源 · MIT", "en": "Open source · MIT" } }
+  "quickstart": {
+    "title": {
+      "en": "Try it locally",
+      "zh": "本地上手"
+    },
+    "body": {
+      "en": "Read the complete synthetic session in examples/sample-session.jsonl and render its allocation tree.",
+      "zh": "读取 examples/sample-session.jsonl 中的完整合成会话，并输出归因树。"
+    },
+    "steps": [
+      {
+        "title": {
+          "en": "Install from source",
+          "zh": "从源码安装"
+        },
+        "code": "git clone https://github.com/SuperMarioYL/ctxprof.git\ncd ctxprof\ngo build ./cmd/ctxprof"
+      },
+      {
+        "title": {
+          "en": "Run the included example",
+          "zh": "运行随仓示例"
+        },
+        "code": "go run ./cmd/ctxprof --session examples/sample-session.jsonl"
+      }
+    ]
+  },
+  "limitations": [
+    {
+      "en": "Per-block and per-bucket values are calibrated estimates. The vendored tokenizer is not Anthropic’s proprietary tokenizer.",
+      "zh": "内容块和分类值是校准后的估计，内置 tokenizer 不是 Anthropic 专有 tokenizer。"
+    },
+    {
+      "en": "The example is a synthetic session; its usage numbers are fixture values, not measured savings.",
+      "zh": "示例为合成会话；用量数字来自固定输入，不是实测节省量。"
+    },
+    {
+      "en": "ctxprof diagnoses recorded data and does not unload skills or edit the session.",
+      "zh": "ctxprof 诊断已记录数据，不会卸载 Skill 或修改会话。"
+    }
+  ],
+  "scene": {
+    "kind": "neon-graph",
+    "fallback": "/assets/presentation/scene-dark.svg",
+    "fallbackLight": "/assets/presentation/scene-light.svg"
+  },
+  "story": {
+    "intro": {
+      "title": {
+        "en": "A concrete task",
+        "zh": "从实际任务出发"
+      },
+      "body": {
+        "en": "An aggregate usage number cannot tell you which loaded content deserves attention. A ranked allocation helps you inspect the largest consumers and compare sessions before changing your workflow.",
+        "zh": "总用量无法指出应当检查哪些已加载内容。归因排行帮助定位较大消费者，并在调整工作流前比较不同会话。"
+      }
+    },
+    "sections": [
+      {
+        "title": {
+          "en": "Follow the operation",
+          "zh": "处理过程"
+        },
+        "body": {
+          "en": "The parser reads JSONL turns, a vendored byte-level BPE weights individual blocks, and reconciliation scales those weights to recorded usage. Attribution groups the result into six buckets. The renderer separates peak single-turn window occupancy from cumulative throughput.",
+          "zh": "解析器读取 JSONL 轮次，内置字节级 BPE 为各内容块估算权重，再对齐到日志中的用量。归因层把结果分入六类，渲染层区分单轮峰值窗口占用与跨轮累计吞吐。"
+        },
+        "image": {
+          "light": "/assets/presentation/process-light.svg",
+          "dark": "/assets/presentation/process-dark.svg",
+          "alt": {
+            "en": "Follow the operation",
+            "zh": "处理过程"
+          }
+        }
+      },
+      {
+        "title": {
+          "en": "How ctxprof works",
+          "zh": "ctxprof 的工作方式"
+        },
+        "body": {
+          "en": "The parser reads JSONL turns, a vendored byte-level BPE weights individual blocks, and reconciliation scales those weights to recorded usage. Attribution groups the result into six buckets. The renderer separates peak single-turn window occupancy from cumulative throughput.",
+          "zh": "解析器读取 JSONL 轮次，内置字节级 BPE 为各内容块估算权重，再对齐到日志中的用量。归因层把结果分入六类，渲染层区分单轮峰值窗口占用与跨轮累计吞吐。"
+        },
+        "image": {
+          "light": "/assets/presentation/architecture-light.svg",
+          "dark": "/assets/presentation/architecture-dark.svg",
+          "alt": {
+            "en": "How ctxprof works",
+            "zh": "ctxprof 的工作方式"
+          }
+        }
+      },
+      {
+        "title": {
+          "en": "Connect the pieces",
+          "zh": "输入与输出"
+        },
+        "body": {
+          "en": "The following routes are implemented in the source. Choose the input that matches your task and keep the resulting artifact with your project.",
+          "zh": "以下路径已有源码实现。按任务选择输入，并把生成的结果与项目一起保存。"
+        },
+        "image": {
+          "light": "/assets/presentation/integrations-light.svg",
+          "dark": "/assets/presentation/integrations-dark.svg",
+          "alt": {
+            "en": "Connect the pieces",
+            "zh": "输入与输出"
+          }
+        }
+      }
+    ],
+    "details": [
+      {
+        "title": {
+          "en": "Configuration",
+          "zh": "配置"
+        },
+        "body": {
+          "en": "Use --session to select a file explicitly; without it the CLI discovers sessions under ~/.claude/projects/. --window-max sets the window denominator. --json selects structured output; --cut-candidates N adds the largest individual consumers.",
+          "zh": "--session 显式指定文件；省略时从 ~/.claude/projects/ 查找会话。--window-max 设置窗口分母，--json 输出结构化结果，--cut-candidates N 列出较大的单项消费者。"
+        }
+      },
+      {
+        "title": {
+          "en": "Further use",
+          "zh": "进一步使用"
+        },
+        "body": {
+          "en": "The CLI exposes the following operations. Commands after the example use your own paths or identifiers.",
+          "zh": "CLI 提供以下操作。示例之外的命令需要替换成你的文件路径或标识。"
+        },
+        "code": "go run ./cmd/ctxprof --session examples/sample-session.jsonl --json\ngo run ./cmd/ctxprof --session examples/sample-session.jsonl --cut-candidates 10\n# Compare your own sessions, old first:\nctxprof compare old.jsonl new.jsonl --json\nctxprof trend session-a.jsonl session-b.jsonl"
+      }
+    ]
+  }
 }

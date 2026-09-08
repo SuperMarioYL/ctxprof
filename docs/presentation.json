@@ -1,0 +1,78 @@
+{
+  "name": "ctxprof",
+  "tagline": "See what occupies your context window.",
+  "architecture": {
+    "title": "How ctxprof works",
+    "nodes": [
+      {
+        "title": "Session parser",
+        "detail": "internal/parser"
+      },
+      {
+        "title": "Local BPE",
+        "detail": "internal/estimate"
+      },
+      {
+        "title": "Reconciliation",
+        "detail": "internal/attribute"
+      },
+      {
+        "title": "Tree / JSON",
+        "detail": "internal/render"
+      }
+    ],
+    "edges": [
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        3
+      ]
+    ]
+  },
+  "process": {
+    "title": "From input to a useful result",
+    "steps": [
+      {
+        "title": "Parse turns",
+        "detail": "Usage and content blocks"
+      },
+      {
+        "title": "Weight and reconcile",
+        "detail": "BPE estimates to recorded totals"
+      },
+      {
+        "title": "Group consumers",
+        "detail": "Six named buckets"
+      }
+    ],
+    "result": "The recorded output separates window occupancy from cumulative tokens and displays estimated bucket shares."
+  },
+  "integrations": {
+    "title": "Supported input and output routes",
+    "items": [
+      {
+        "title": "Claude JSONL",
+        "detail": "Recorded turns and usage"
+      },
+      {
+        "title": "allocation/v1",
+        "detail": "Structured allocation output"
+      },
+      {
+        "title": "Trend / compare",
+        "detail": "Read-only session comparison"
+      },
+      {
+        "title": "Terminal tree",
+        "detail": "Largest context consumers"
+      }
+    ]
+  }
+}
