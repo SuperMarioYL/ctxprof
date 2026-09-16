@@ -5,6 +5,52 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-09-17
+
+Correctness pass. Four fixes from the grill bug-hunt over the shipped v0.10.0
+source — no new features, no new Go deps, still read-only and terminal-only.
+
+### Fixed
+- **PDF `tool_result` sub-blocks are now sized, so a PDF Read is no longer
+  misattributed from the file bucket to output.** The v0.9.0 image fix restored
+  sizing for `type:"image"` sub-blocks, but `toolResultSizing`
+  (`internal/parser/session.go`) still silently skipped `type:"document"`
+  sub-blocks — which Claude Code emits whenever a Read pulls a PDF
+  (`source:{type:"base64", media_type:"application/pdf"}`). A zero-weight block
+  scales to 0 during reconciliation and the last-block remainder rule hands its
+  entire real share to the trailing assistant text block: a 50k-token PDF Read
+  reported `file: 0, output: 50,120`. Document payloads now share the image
+  branch's bounded estimator (floor 1500 / cap 5000, `len(base64)/750`), so the
+  proportional scaler routes their share to the origin bucket. Covered by
+  `internal/parser/session_test.go`
+  (`TestParseReader_ToolResultDocumentSizesNonZero`) and
+  `internal/attribute/reconcile_test.go`
+  (`TestAttribute_DocumentToolResultLandsInFileBucket`).
+- **`--json`, `trend --json` and `compare --json` no longer HTML-escape
+  `<`, `>` and `&` in file paths and item names.** The three encoders in
+  `cmd/ctxprof/main.go` never called `SetEscapeHTML(false)`, so a Read of
+  `/tmp/a<b>&c.go` was emitted as `/tmp/a\u003cb\u003e\u0026c.go` on the
+  machine surface — while the `parse` surface (which already sets
+  `SetEscapeHTML(false)`) emitted the raw string. ctxprof JSON is a data
+  surface, never browser-interpolated markup; all three encoders now emit raw
+  strings. Covered by `cmd/ctxprof/main_test.go`
+  (`TestJSONOutputDoesNotHTMLEscapePaths`).
+- **CHANGELOG entries added for the shipped v0.7.0 and v0.9.0 releases** (plus
+  a v0.1.1 stub). Both iteration-era releases shipped without a section here —
+  the headings jumped 0.10.0 → 0.8.0 → 0.6.0 — leaving two of the last four
+  releases invisible in the file every visitor reads. Entries are backfilled
+  from the release summaries; every tag in `git tag -l` now has a heading.
+- **The demo workflow can no longer fail with a non-fast-forward push when a
+  tag is not main's tip.** `demo.yml` commits the rendered gif on a detached
+  tag checkout and pushed `HEAD:main` bare — rejected whenever main had
+  advanced past the tag (reproduced with a dry-run push from the v0.10.0 tag
+  while main was four commits ahead; the same trap forced a manual rebase
+  during the v0.4.0 ship). The step now fetches origin/main and rebases with
+  `-X theirs --empty=drop` before pushing, so a moved-on main resolves in favor
+  of the fresh render, an identical render drops the empty commit, and the push
+  always fast-forwards. The unpinned `go install .../vhs@latest` was also
+  pinned to `v0.9.0`.
+
 ## [0.10.0] — 2026-09-02
 
 Correctness pass. One fix over the shipped v0.9.0 source — no new features, no new
@@ -35,6 +81,30 @@ the documented `go install` path inherited.
   content. The version-bump surfaces (VERSION, CHANGELOG, web/site.json
   `meta.content_version`) are aligned to `0.10.0`.
 
+## [0.9.0] — 2026-08-24
+
+Correctness pass. One fix over the shipped v0.8.0 source — no new features, no new
+deps, still read-only and terminal-only. (Entry backfilled in 0.11.0; the release
+shipped without a changelog section.)
+
+### Fixed
+- **Image `tool_result` sub-blocks are now sized, so an image Read is no longer
+  misattributed from the file bucket to output.** The tool_result flattening
+  (`internal/parser` `toolResultSizing`) only concatenated `type:"text"`
+  sub-blocks, so any `type:"image"` sub-block — which Claude Code emits whenever
+  a Read reads a PNG/JPG, or an MCP tool returns an image — was silently
+  skipped and its block estimated at 0 tokens. During per-turn reconciliation a
+  zero-weight block scales to 0 and the last-block remainder rule hands its
+  entire real share to the trailing assistant text block, so an image Read that
+  consumed ~50k of the model input was reported under output
+  (observed `file: 238, output: 50,362`). Image payloads now contribute a
+  non-zero, size-bounded estimate (`min(len(base64)/750, 5000)` with a 1500
+  floor), so the proportional scaler routes the image's share to the origin
+  bucket. Covered by `internal/parser/session_test.go`
+  (`TestParseReader_ToolResultImageSizesNonZero`) and
+  `internal/attribute/reconcile_test.go`
+  (`TestAttribute_ImageToolResultLandsInFileBucket`).
+
 ## [0.8.0] — 2026-08-20
 
 Correctness pass. One fix over the shipped v0.7.0 source — no new features, no new
@@ -58,6 +128,25 @@ deps, still read-only and terminal-only. It closes a contract violation in the
   == peak, share ≤ `1.0` naturally) is unchanged, and the `WindowOccupancy == 0`
   degenerate path still yields `0`. Covered by `topconsumers_test.go`
   (`TestTopCutCandidates_WindowShareCappedAtOneForRecurringItem`).
+
+## [0.7.0] — 2026-07-22
+
+Hardening pass plus the project's web distribution channel. (Entry backfilled in
+0.11.0; the release shipped without a changelog section.)
+
+### Fixed
+- **`trend` / `compare` column labels no longer truncate session ids on a byte
+  index.** `trendLabel` (and `compareLabel`, which delegates to it) shortened
+  the session id with `id[:8]`, a byte-index slice — for a non-ASCII
+  (multibyte) session id that cuts mid-rune and emits invalid UTF-8 into the
+  rendered column header, the same defect class the 0.2.0 display-width fix
+  removed for item names. Claude Code session ids are ASCII ULIDs today, so the
+  defect was latent; the label truncation is now rune-aware
+  (`cmd/ctxprof/main_test.go`, `TestTrendLabel_MultibyteSessionIDNoMidRune`).
+
+### Added
+- A project website (GitHub Pages) carrying the install command and the
+  allocation schema summary.
 
 ## [0.6.0] — 2026-07-13
 
@@ -241,6 +330,11 @@ This release fixes that and swaps the placeholder tokenizer for a real one.
 
 ### Dependencies
 - Add `github.com/mattn/go-runewidth@v0.0.16` (promoted from indirect).
+
+## [0.1.1] — 2026-06-19
+
+Patch release (entry stub backfilled in 0.11.0): docs house-style architecture
+diagram, demo tape relocation, and the release/demo CI workflows.
 
 ## [0.1.0] — 2026-06-04
 

@@ -23,7 +23,7 @@ import (
 // It must carry the real release number and stay in lockstep with the VERSION file
 // (asserted by TestVersionVarTracksVersionFile), so a no-ldflags build reports the
 // shipped version instead of a stale dev marker.
-var version = "0.10.0"
+var version = "0.11.0"
 
 var (
 	flagJSON          bool
@@ -139,6 +139,12 @@ func profile(cmd *cobra.Command, path string) error {
 	if flagJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
+		// No HTML escaping: ctxprof JSON is a data surface (paths, skill and
+		// MCP names round-trip raw), never browser-interpolated markup. With
+		// the default on, Go rewrote every '<'/'>'/'&' in a file_path to
+		// \u003c/\u003e/\u0026, corrupting paths like /tmp/a<b>&c.go — while
+		// the parse surface (render.PerTurnJSON) already emits them raw.
+		enc.SetEscapeHTML(false)
 		return enc.Encode(allocationJSON{
 			SchemaVersion: "allocation/v1",
 			CutCandidates: cuts,
@@ -287,6 +293,7 @@ func runTrend(cmd *cobra.Command, args []string) error {
 	if flagJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
+		enc.SetEscapeHTML(false) // data surface — see profile() for why
 		return enc.Encode(jsonRows)
 	}
 	return render.Trend(out, points, render.TreeOptions{NoColor: flagNoColor})
@@ -472,6 +479,7 @@ func runCompare(cmd *cobra.Command, args []string) error {
 	if flagJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
+		enc.SetEscapeHTML(false) // data surface — see profile() for why
 		return enc.Encode(compareJSON{
 			SchemaVersion: "compare/v1",
 			Old:           allocationJSON{SchemaVersion: "allocation/v1", Allocation: oldAlloc},

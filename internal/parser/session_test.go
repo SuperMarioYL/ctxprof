@@ -182,3 +182,39 @@ func TestParseReader_ToolResultImageSizesNonZero(t *testing.T) {
 		t.Errorf("image tool_result RawExcerpt = %q, want empty (no base64 in excerpt)", blocks[0].RawExcerpt)
 	}
 }
+
+// --- fix: tool-result document content dropped from estimate -------------------
+//
+// A tool_result whose content is a single document sub-block (a Read of a PDF,
+// which Claude Code attaches as {type:"document", source:{type:"base64",
+// media_type:"application/pdf", ...}}) was sized to 0 by the v0.10 flatten,
+// because its ForEach switch handled only type:"text" and type:"image". The
+// document branch must now contribute a non-zero estimate, exactly as the
+// v0.9 image fix did for images. Drives toolResultSizing through the public
+// parser.
+func TestParseReader_ToolResultDocumentSizesNonZero(t *testing.T) {
+	// A 100k-char base64 payload — len/750 = 133, floored to 1500 (same
+	// bounded estimator the image branch uses).
+	const dataLen = 100_000
+	jsonl := `{"sessionId":"pdf","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"` + strings.Repeat("A", dataLen) + `"}}]}]}}`
+
+	sess, err := parser.ParseReader(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("ParseReader: %v", err)
+	}
+	blocks := sess.Turns[0].Blocks
+	if len(blocks) != 1 || blocks[0].Type != parser.BlockToolResult {
+		t.Fatalf("got blocks %+v, want one tool_result", blocks)
+	}
+	if blocks[0].EstTokens <= 0 {
+		t.Errorf("document tool_result EstTokens = %d, want >0 (document content silently dropped by text/image-only flatten)", blocks[0].EstTokens)
+	}
+	if blocks[0].EstTokens != 1500 {
+		t.Errorf("document tool_result EstTokens = %d, want 1500 (document floor for a sub-cap base64)", blocks[0].EstTokens)
+	}
+	// A document-only result carries no text, so the excerpt must stay empty
+	// rather than leak base64 into the stored RawExcerpt.
+	if blocks[0].RawExcerpt != "" {
+		t.Errorf("document tool_result RawExcerpt = %q, want empty (no base64 in excerpt)", blocks[0].RawExcerpt)
+	}
+}

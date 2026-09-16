@@ -25,15 +25,30 @@ jobs:
           sudo apt-get install -y ffmpeg jq
           sudo curl -fsSL -o /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
           sudo chmod +x /usr/local/bin/ttyd
-          go install github.com/charmbracelet/vhs@latest
+          # Pinned: @latest let any upstream vhs release silently break the render.
+          go install github.com/charmbracelet/vhs@v0.9.0
       - name: Render demo.gif
         run: |
           export PATH="$(go env GOPATH)/bin:$PATH"
           vhs docs/demo.tape
       - name: Commit rendered gif
         run: |
+          set -euo pipefail
           git config user.name  "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git add assets/demo.gif
           git commit -m "chore: render demo gif" || { echo "no change"; exit 0; }
+          # The checkout is DETACHED at the pushed tag; if main has advanced past
+          # the tag, a bare `git push origin HEAD:main` is rejected
+          # non-fast-forward and fails this workflow (it also forced a manual
+          # rebase during the v0.4.0 ship). Rebase the gif commit onto
+          # origin/main first so the push always fast-forwards:
+          #   -X theirs    — on a binary conflict in assets/demo.gif (main's gif
+          #                  moved on since the tag), the freshly rendered gif wins;
+          #   --empty=drop — when the fresh render equals main's gif the commit
+          #                  becomes empty and is dropped, leaving HEAD at main
+          #                  ("Everything up-to-date" push).
+          # A plain no-op when the tag IS main's tip.
+          git fetch origin main
+          git rebase -X theirs --empty=drop origin/main
           git push origin HEAD:main

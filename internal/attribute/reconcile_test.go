@@ -517,3 +517,57 @@ func TestAttribute_ImageToolResultLandsInFileBucket(t *testing.T) {
 	// The image content inherits the originating Read's path as its item name.
 	mustHaveItem(t, alloc.Buckets[parser.BucketFile], readPath)
 }
+
+// --- fix: document (PDF) tool_result dropped from estimate ---------------------
+//
+// The v0.10 toolResultSizing handled only text and image sub-blocks, so a PDF
+// Read (tool_result content type:"document") was sized to 0 and its entire
+// real share of the turn landed in output. Mirrors the image test: the
+// document read's ~50k input must land in file (the Read's origin bucket).
+func TestAttribute_DocumentToolResultLandsInFileBucket(t *testing.T) {
+	const readPath = "docs/report.pdf"
+	// 100k base64 chars -> document estimate floor 1500 (non-zero, dominates
+	// the tiny assistant text block so the scaler attributes the document's
+	// share to file).
+	const dataLen = 100_000
+	jsonl := `{"sessionId":"pdfattr","type":"user","message":{"role":"user","content":"read the report"}}
+{"sessionId":"pdfattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reading it"},{"type":"tool_use","id":"tu_read_1","name":"Read","input":{"file_path":"` + readPath + `"}}],"usage":{"input_tokens":200,"output_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"sessionId":"pdfattr","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_read_1","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"` + strings.Repeat("A", dataLen) + `"}}]}]}}
+{"sessionId":"pdfattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the report concludes"}],"usage":{"input_tokens":50000,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`
+
+	sess, err := parser.ParseReader(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("ParseReader: %v", err)
+	}
+	alloc := attribute.Attribute(sess, 200_000)
+
+	// Sum invariant: sum of all buckets == sum of per-turn usage totals.
+	realTotal := 0
+	for _, tr := range sess.Turns {
+		if tr.Usage != nil {
+			realTotal += tr.Usage.Total()
+		}
+	}
+	bucketSum := 0
+	for _, bd := range alloc.Buckets {
+		bucketSum += bd.Tokens
+	}
+	if bucketSum != realTotal {
+		t.Fatalf("bucket sum %d != real total %d (reconciliation broke the balance)", bucketSum, realTotal)
+	}
+
+	file := alloc.Buckets[parser.BucketFile].Tokens
+	output := alloc.Buckets[parser.BucketOutput].Tokens
+
+	// Pre-fix (shipped v0.10.0): file=0, output=50120 — the whole PDF landed
+	// in output. Post-fix the document's share must route to file.
+	if file <= output {
+		t.Errorf("file %d should exceed output %d — document read misattributed to output", file, output)
+	}
+	if file < 25_000 {
+		t.Errorf("file = %d, want >25000 (the document read's ~50k input must land in file, not output)", file)
+	}
+
+	// The document content inherits the originating Read's path as its item name.
+	mustHaveItem(t, alloc.Buckets[parser.BucketFile], readPath)
+}

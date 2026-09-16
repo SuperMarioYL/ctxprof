@@ -409,3 +409,46 @@ func TestVersionVarTracksVersionFile(t *testing.T) {
 		t.Errorf("main.version = %q, want a dotted release number", version)
 	}
 }
+
+// --- fix: --json output HTML-escaped paths ------------------------------------
+//
+// The three encoding/json encoders in main.go (profile / runTrend / runCompare)
+// never called SetEscapeHTML(false), so Go's default HTML escaping turned every
+// '<', '>' and '&' in file paths / item names into \u003c \u003e \u0026 on the
+// machine surface — while the parse surface (render.PerTurnJSON) already emits
+// the raw string. A Read of "a<b>&c.go" must round-trip raw in --json output.
+func TestJSONOutputDoesNotHTMLEscapePaths(t *testing.T) {
+	sess := writeSession(t)
+	// Rebuild the fixture with a path carrying HTML-significant bytes: a Read
+	// tool_use + tool_result pair, then an assistant turn.
+	dir := filepath.Dir(sess)
+	p := filepath.Join(dir, "html.jsonl")
+	lines := []string{
+		`{"sessionId":"html","message":{"role":"user","content":[{"type":"tool_use","id":"tu_1","name":"Read","input":{"file_path":"/tmp/a<b>&c.go"}}]}}`,
+		`{"sessionId":"html","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":[{"type":"text","text":"package main"}]}]}}`,
+		`{"sessionId":"html","message":{"role":"assistant","usage":{"input_tokens":500,"output_tokens":30,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"text","text":"done"}]}}`,
+	}
+	if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+
+	out, err := runCmd(t, p, "--json", "--no-color")
+	if err != nil {
+		t.Fatalf("--json run: %v\n%s", err, out)
+	}
+	if strings.Contains(out, `\u003c`) || strings.Contains(out, `\u0026`) {
+		t.Errorf("--json output HTML-escaped the path (found \\u003c/\\u0026):\n%s", out)
+	}
+	if !strings.Contains(out, "/tmp/a<b>&c.go") {
+		t.Errorf("--json output does not carry the raw path /tmp/a<b>&c.go:\n%s", out)
+	}
+
+	// The compare --json encoder has the same obligation.
+	out2, err := runCmd(t, "compare", p, p, "--json", "--no-color")
+	if err != nil {
+		t.Fatalf("compare --json run: %v\n%s", err, out2)
+	}
+	if strings.Contains(out2, `\u003c`) || strings.Contains(out2, `\u0026`) {
+		t.Errorf("compare --json output HTML-escaped the path:\n%s", out2)
+	}
+}

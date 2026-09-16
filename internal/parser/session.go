@@ -188,18 +188,21 @@ func blockFromJSON(b gjson.Result) (Block, bool) {
 
 // toolResultSizing flattens the content payload of a tool_result block into a
 // text sizing string (later BPE-tokenized) plus a direct token estimate for
-// any image sub-blocks. The payload may be a bare string or an array of
-// {type:"text", text:"..."} and {type:"image", source:{type:"base64",
-// media_type:"image/...", data:"<base64>"}} entries.
+// any image or document sub-blocks. The payload may be a bare string or an
+// array of {type:"text", text:"..."}, {type:"image", source:{type:"base64",
+// media_type:"image/...", data:"<base64>"}} and {type:"document",
+// source:{type:"base64", media_type:"application/pdf", data:"<base64>"}}
+// entries.
 //
-// Image content is a base64 payload (source.data) that the text-only flattening
-// silently dropped, sizing an image-only Read/MCP result to 0. A zero estimate
-// makes the per-turn scaler hand the result's real share to the other blocks
-// (reconcile.go), misattributing a Read's image input to output. imageEstimate
-// therefore contributes a non-zero, size-bounded estimate so the proportional
-// scaler routes the image's share to its origin bucket (file for a Read, mcp
-// for an MCP image). The text branch is unchanged.
-func toolResultSizing(c gjson.Result) (text string, imageTokens int) {
+// Image and document content are base64 payloads (source.data) that the
+// text-only flattening silently dropped, sizing an image-only or PDF-only
+// Read/MCP result to 0. A zero estimate makes the per-turn scaler hand the
+// result's real share to the other blocks (reconcile.go), misattributing a
+// Read's image/PDF input to output. imageEstimate therefore contributes a
+// non-zero, size-bounded estimate so the proportional scaler routes that
+// share to its origin bucket (file for a Read, mcp for an MCP image/document).
+// The text branch is unchanged.
+func toolResultSizing(c gjson.Result) (text string, binaryTokens int) {
 	if !c.Exists() {
 		return "", 0
 	}
@@ -214,12 +217,17 @@ func toolResultSizing(c gjson.Result) (text string, imageTokens int) {
 		switch sub.Get("type").String() {
 		case "text":
 			sb.WriteString(sub.Get("text").String())
-		case "image":
-			imageTokens += imageEstimate(sub.Get("source.data").String())
+		case "image", "document":
+			// A document sub-block is a base64 PDF (Claude Code emits it for a
+			// Read of a .pdf); it shares the image branch's bounded estimator —
+			// the JSONL records no per-attachment token count for either, and
+			// both only need a non-zero, roughly size-proportional weight for
+			// the scaler to route their real share to the origin bucket.
+			binaryTokens += imageEstimate(sub.Get("source.data").String())
 		}
 		return true
 	})
-	return sb.String(), imageTokens
+	return sb.String(), binaryTokens
 }
 
 // imageEstimate is a coarse, non-zero token estimate for a base64 image
