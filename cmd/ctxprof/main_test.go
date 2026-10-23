@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -408,6 +409,27 @@ func TestVersionVarTracksVersionFile(t *testing.T) {
 	if version == "" || !strings.Contains(version, ".") {
 		t.Errorf("main.version = %q, want a dotted release number", version)
 	}
+
+	// web/site.json's meta.content_version is the third surface the v0.10.0 fix
+	// named as silently diverging (before that release the file carried no
+	// content_version at all). Guard it here so a release that bumps VERSION but
+	// forgets the site manifest fails mechanically instead of shipping a site
+	// pinned to the previous version.
+	siteRaw, err := os.ReadFile("../../web/site.json")
+	if err != nil {
+		t.Fatalf("read web/site.json: %v", err)
+	}
+	var site struct {
+		Meta struct {
+			ContentVersion string `json:"content_version"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(siteRaw, &site); err != nil {
+		t.Fatalf("parse web/site.json: %v", err)
+	}
+	if site.Meta.ContentVersion != want {
+		t.Errorf("web/site.json meta.content_version = %q, VERSION file = %q — the site manifest must track the release (drift)", site.Meta.ContentVersion, want)
+	}
 }
 
 // --- fix: --json output HTML-escaped paths ------------------------------------
@@ -450,5 +472,76 @@ func TestJSONOutputDoesNotHTMLEscapePaths(t *testing.T) {
 	}
 	if strings.Contains(out2, `\u003c`) || strings.Contains(out2, `\u0026`) {
 		t.Errorf("compare --json output HTML-escaped the path:\n%s", out2)
+	}
+}
+
+// --- fix: truncated JSONL line half-parsed into a phantom turn ----------------
+//
+// A truncated final line (a session read while it is still being written) is not
+// valid JSON, but gjson parses it leniently: pre-fix the CLI counted the turn's
+// half-read usage while its truncated content yielded no blocks, so reconciliation
+// parked the whole 214,000-token total in the system bucket and printed
+// "system ... 214,000 (99.3%)" at 105% of window with exit 0 and no warning. The
+// truncated line must now be skipped AND reported.
+func TestTruncatedSessionLineWarnsAndIsNotCounted(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "trunc.jsonl")
+	lines := []string{
+		`{"sessionId":"trunc","message":{"role":"user","content":"hi"}}`,
+		`{"sessionId":"trunc","message":{"role":"assistant","usage":{"input_tokens":1000,"output_tokens":500,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"text","text":"hello"}]}}`,
+		// Cut mid-write after "cache_creation_inp — invalid JSON, yet gjson still
+		// resolves input_tokens / output_tokens / cache_read_input_tokens.
+		`{"sessionId":"trunc","message":{"role":"assistant","usage":{"input_tokens":90000,"output_tokens":4000,"cache_read_input_tokens":120000,"cache_creation_inp`,
+	}
+	if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+
+	out, err := runCmd(t, p, "--no-color")
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	// The truncated turn's half-read usage must not be counted (pre-fix: cumulative
+	// 215,500, occupancy 210,000 = 105% of window, system 214,000).
+	if strings.Contains(out, "214,000") || strings.Contains(out, "215,500") || strings.Contains(out, "105%") {
+		t.Errorf("truncated line was half-parsed into a phantom turn:\n%s", out)
+	}
+	if !strings.Contains(out, "1,500 tokens cumulative") {
+		t.Errorf("expected only the valid turn's 1,500 cumulative tokens:\n%s", out)
+	}
+	// The skip must be reported, not silent.
+	if !strings.Contains(out, "warning: skipped 1 unparseable line") {
+		t.Errorf("expected a warning naming the skipped line:\n%s", out)
+	}
+}
+
+// TestDemoTapeHasNoRetiredFieldOrLicenseMismatch pins the two recorded-demo
+// defects fixed in v0.12.0 so the tape cannot drift again. docs/demo.tape is
+// rendered by .github/workflows/demo.yml into assets/demo.gif, the flagship
+// visual embedded in both READMEs and on the project site:
+//   - its jq frame queried .total_tokens, a key RENAMED to cumulative_tokens in
+//     v0.2 (the schema has no total_tokens property), so the shipped gif rendered
+//     "total": null;
+//   - its closing frame advertised MIT while the repository LICENSE is Apache-2.0.
+func TestDemoTapeHasNoRetiredFieldOrLicenseMismatch(t *testing.T) {
+	tape, err := os.ReadFile("../../docs/demo.tape")
+	if err != nil {
+		t.Fatalf("read docs/demo.tape: %v", err)
+	}
+	s := string(tape)
+
+	if strings.Contains(s, "total_tokens") {
+		t.Error("docs/demo.tape still queries the retired total_tokens key (renamed to cumulative_tokens in v0.2) — the rendered gif prints a null total")
+	}
+	if !strings.Contains(s, ".cumulative_tokens") {
+		t.Error("docs/demo.tape should query .cumulative_tokens so the recorded demo shows real throughput")
+	}
+
+	lic, err := os.ReadFile("../../LICENSE")
+	if err != nil {
+		t.Fatalf("read LICENSE: %v", err)
+	}
+	if strings.Contains(string(lic), "Apache License") && strings.Contains(s, "MIT") {
+		t.Error("docs/demo.tape claims MIT while LICENSE is Apache-2.0 — the rendered gif advertises the wrong license")
 	}
 }

@@ -45,6 +45,17 @@ func ParseFile(path string) (*Session, error) {
 // skipped but still scanned for the top-level sessionId. Lines whose
 // message.role is neither "user" nor "assistant" are skipped silently.
 //
+// A non-blank line that is not valid JSON is also skipped, but it is COUNTED
+// (Session.MalformedLines / FirstMalformedLine) rather than ignored. Claude Code
+// appends JSONL incrementally, so the final line of a session that is still being
+// written is routinely truncated; gjson parses leniently, so without this guard a
+// truncated line would be half-read — its message.usage numbers counted while its
+// truncated message.content yielded no blocks — and reconciliation would then park
+// the whole turn total in the system bucket (see attribute.Attribute), reporting a
+// fabricated system-prompt figure at an inflated window-% with no signal to the
+// user. Skipping the line keeps the per-turn balance honest; the counter is what
+// lets the CLI say the totals are incomplete.
+//
 // Per the §2 contract in mvp_plan.md, Usage is populated only for assistant
 // turns and is read straight from message.usage.{input_tokens,
 // output_tokens, cache_read_input_tokens, cache_creation_input_tokens}.
@@ -56,9 +67,18 @@ func ParseReader(r io.Reader) (*Session, error) {
 	scanner.Buffer(make([]byte, 0, 1<<16), scannerBufferMax)
 
 	idx := 0
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || line[0] != '{' {
+		if line == "" {
+			continue
+		}
+		if !gjson.Valid(line) {
+			sess.MalformedLines++
+			if sess.FirstMalformedLine == 0 {
+				sess.FirstMalformedLine = lineNo
+			}
 			continue
 		}
 

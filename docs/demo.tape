@@ -28,7 +28,7 @@ Sleep 5s
 Type "clear"
 Enter
 Sleep 300ms
-Type "ctxprof examples/sample-session.jsonl --json | jq '{total: .total_tokens, buckets: (.buckets | map_values(.tokens))}'"
+Type "ctxprof examples/sample-session.jsonl --json | jq '{total: .cumulative_tokens, buckets: (.buckets | map_values(.tokens))}'"
 Sleep 400ms
 Enter
 Sleep 4s
@@ -43,5 +43,5 @@ Enter
 Sleep 4s
 
 # Closing frame
-Type "# six buckets, one binary, MIT — github.com/SuperMarioYL/ctxprof"
+Type "# six buckets, one binary, Apache-2.0 — github.com/SuperMarioYL/ctxprof"
 Sleep 1500ms

@@ -23,7 +23,7 @@ import (
 // It must carry the real release number and stay in lockstep with the VERSION file
 // (asserted by TestVersionVarTracksVersionFile), so a no-ldflags build reports the
 // shipped version instead of a stale dev marker.
-var version = "0.11.0"
+var version = "0.12.0"
 
 var (
 	flagJSON          bool
@@ -120,10 +120,32 @@ func resolveWindowMax(cmd *cobra.Command, w int) int {
 	return attribute.DefaultWindowMax
 }
 
+// parseSession parses a session file and warns on stderr when the file contained
+// lines that were not valid JSON. The parser skips such a line rather than
+// half-reading it (see parser.ParseReader), because a truncated record — the last
+// line of a session that is still being written is routinely cut mid-line — would
+// otherwise contribute a partially-read turn whose whole total lands in the system
+// bucket. Every command that reports totals goes through here so the omission is
+// never silent: without the warning the user sees a confidently wrong allocation
+// (a fabricated system-prompt figure and an inflated window-%) and no hint that a
+// line was dropped.
+func parseSession(cmd *cobra.Command, path string) (*parser.Session, error) {
+	sess, err := parser.ParseFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if sess.MalformedLines > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: skipped %d unparseable line(s) in %s (first at line %d); reported totals are incomplete\n",
+			sess.MalformedLines, path, sess.FirstMalformedLine)
+	}
+	return sess, nil
+}
+
 // profile runs the full pipeline: parse the session, attribute + reconcile its
 // blocks into buckets, then render either the flame tree or allocation_v1.json.
 func profile(cmd *cobra.Command, path string) error {
-	sess, err := parser.ParseFile(path)
+	sess, err := parseSession(cmd, path)
 	if err != nil {
 		return err
 	}
@@ -220,7 +242,7 @@ func newParseCmd() *cobra.Command {
 		Short: "Emit one JSON record per turn (debug helper, m1 surface)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sess, err := parser.ParseFile(args[0])
+			sess, err := parseSession(cmd, args[0])
 			if err != nil {
 				return err
 			}
@@ -280,7 +302,7 @@ func runTrend(cmd *cobra.Command, args []string) error {
 	points := make([]render.TrendPoint, 0, len(paths))
 	jsonRows := make([]allocationJSON, 0, len(paths))
 	for _, p := range paths {
-		sess, perr := parser.ParseFile(p)
+		sess, perr := parseSession(cmd, p)
 		if perr != nil {
 			return fmt.Errorf("parse %s: %w", p, perr)
 		}
@@ -461,11 +483,11 @@ type compareJSON struct {
 func runCompare(cmd *cobra.Command, args []string) error {
 	windowMax := resolveWindowMax(cmd, flagWindowMax)
 
-	oldSess, err := parser.ParseFile(args[0])
+	oldSess, err := parseSession(cmd, args[0])
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", args[0], err)
 	}
-	newSess, err := parser.ParseFile(args[1])
+	newSess, err := parseSession(cmd, args[1])
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", args[1], err)
 	}

@@ -97,6 +97,20 @@ type Session struct {
 	ID       string `json:"id"`
 	FilePath string `json:"file_path"`
 	Turns    []Turn `json:"turns"`
+
+	// MalformedLines counts the non-blank input lines that were not valid JSON and
+	// were therefore skipped. Claude Code appends JSONL incrementally, so the last
+	// line of a session that is still being written is routinely truncated; a
+	// lenient parse of such a line would half-read a turn (its message.usage
+	// numbers counted, its message.content yielding no blocks), which reconciliation
+	// would then park entirely in the system bucket. The parser skips those lines
+	// instead and records the count here so the caller can tell the user the totals
+	// are incomplete rather than silently understating the session.
+	MalformedLines int `json:"-"`
+	// FirstMalformedLine is the 1-based input line number of the first skipped
+	// malformed line, or 0 when there was none. It gives the warning a location to
+	// point at.
+	FirstMalformedLine int `json:"-"`
 }
 
 // Item is a single named row inside a bucket (e.g. one skill, one MCP server).

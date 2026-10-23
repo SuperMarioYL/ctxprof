@@ -477,9 +477,9 @@ func TestAttribute_ImageToolResultLandsInFileBucket(t *testing.T) {
 	// tiny assistant text block so the scaler attributes the image's share to file).
 	const dataLen = 100_000
 	jsonl := `{"sessionId":"imgattr","type":"user","message":{"role":"user","content":"show me the screenshot"}}
-{"sessionId":"imgattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reading it"},{"type":"tool_use","id":"tu_read_1","name":"Read","input":{"file_path":"` + readPath + `"}}],"usage":{"input_tokens":200,"output_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"sessionId":"imgattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reading it"},{"type":"tool_use","id":"tu_read_1","name":"Read","input":{"file_path":"` + readPath + `"}}],"usage":{"input_tokens":200,"output_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 {"sessionId":"imgattr","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_read_1","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + strings.Repeat("A", dataLen) + `"}}]}]}}
-{"sessionId":"imgattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the chart shows a spike"}],"usage":{"input_tokens":50000,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`
+{"sessionId":"imgattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the chart shows a spike"}],"usage":{"input_tokens":50000,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`
 
 	sess, err := parser.ParseReader(strings.NewReader(jsonl))
 	if err != nil {
@@ -531,9 +531,9 @@ func TestAttribute_DocumentToolResultLandsInFileBucket(t *testing.T) {
 	// share to file).
 	const dataLen = 100_000
 	jsonl := `{"sessionId":"pdfattr","type":"user","message":{"role":"user","content":"read the report"}}
-{"sessionId":"pdfattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reading it"},{"type":"tool_use","id":"tu_read_1","name":"Read","input":{"file_path":"` + readPath + `"}}],"usage":{"input_tokens":200,"output_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"sessionId":"pdfattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reading it"},{"type":"tool_use","id":"tu_read_1","name":"Read","input":{"file_path":"` + readPath + `"}}],"usage":{"input_tokens":200,"output_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 {"sessionId":"pdfattr","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_read_1","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"` + strings.Repeat("A", dataLen) + `"}}]}]}}
-{"sessionId":"pdfattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the report concludes"}],"usage":{"input_tokens":50000,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`
+{"sessionId":"pdfattr","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the report concludes"}],"usage":{"input_tokens":50000,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}`
 
 	sess, err := parser.ParseReader(strings.NewReader(jsonl))
 	if err != nil {

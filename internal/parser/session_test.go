@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/SuperMarioYL/ctxprof/internal/parser"
+	"github.com/tidwall/gjson"
 )
 
 const sampleSessionPath = "../../examples/sample-session.jsonl"
@@ -216,5 +217,64 @@ func TestParseReader_ToolResultDocumentSizesNonZero(t *testing.T) {
 	// rather than leak base64 into the stored RawExcerpt.
 	if blocks[0].RawExcerpt != "" {
 		t.Errorf("document tool_result RawExcerpt = %q, want empty (no base64 in excerpt)", blocks[0].RawExcerpt)
+	}
+}
+
+// --- fix: truncated JSONL line half-parsed into a phantom turn ----------------
+//
+// A non-blank line that is not valid JSON used to be handed straight to gjson,
+// which parses leniently: a truncated final line (Claude Code appends JSONL
+// incrementally, so the last line of a session being read while it is still being
+// written is routinely cut mid-line) yielded a HALF-populated Turn — the
+// message.usage numbers it could still see were counted while the truncated
+// message.content produced no Blocks — and reconciliation then parked that turn's
+// whole total in the system bucket. ParseReader must now skip such a line and
+// report it instead.
+func TestParseReader_SkipsMalformedLineAndReportsIt(t *testing.T) {
+	// Line 3 is cut mid-write after `"cache_creation_inp`, so it is not valid JSON
+	// but gjson still resolves input_tokens/output_tokens/cache_read_input_tokens.
+	const jsonl = `{"sessionId":"trunc","message":{"role":"user","content":"hi"}}
+{"sessionId":"trunc","message":{"role":"assistant","usage":{"input_tokens":1000,"output_tokens":500,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"text","text":"hello"}]}}
+{"sessionId":"trunc","message":{"role":"assistant","usage":{"input_tokens":90000,"output_tokens":4000,"cache_read_input_tokens":120000,"cache_creation_inp
+`
+	sess, err := parser.ParseReader(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("ParseReader: %v", err)
+	}
+
+	// The truncated line must not become a turn (pre-fix it did, carrying a
+	// half-read usage total that reconciliation parked in the system bucket).
+	if len(sess.Turns) != 2 {
+		t.Fatalf("Turns = %d, want 2 (the truncated line must be skipped, not half-parsed)", len(sess.Turns))
+	}
+	if got := sess.Turns[1].Usage.Total(); got != 1500 {
+		t.Errorf("last kept turn usage total = %d, want 1500 (the truncated turn must not be counted)", got)
+	}
+
+	// The skip is reported, not silent.
+	if sess.MalformedLines != 1 {
+		t.Errorf("MalformedLines = %d, want 1", sess.MalformedLines)
+	}
+	if sess.FirstMalformedLine != 3 {
+		t.Errorf("FirstMalformedLine = %d, want 3", sess.FirstMalformedLine)
+	}
+
+	// Precondition (revert-verified): the offending line must genuinely be invalid
+	// JSON while still exposing usage fields to a lenient parse, so the case
+	// actually exercises the half-parse. If gjson ever rejects it outright the case
+	// no longer guards the bug.
+	if gjson.Valid(jsonl[strings.LastIndex(jsonl, "\n{")+1:]) {
+		t.Fatal("precondition: the truncated line should not be valid JSON")
+	}
+
+	// Valid JSON records without a message are still skipped silently, and blank
+	// lines do not inflate the malformed count.
+	const benign = "\n{\"type\":\"summary\",\"summary\":\"meta\"}\n{\"a\":1}\n"
+	sess2, err := parser.ParseReader(strings.NewReader(benign))
+	if err != nil {
+		t.Fatalf("ParseReader(benign): %v", err)
+	}
+	if sess2.MalformedLines != 0 {
+		t.Errorf("benign input reported MalformedLines = %d, want 0 (valid JSON meta records must stay silent)", sess2.MalformedLines)
 	}
 }

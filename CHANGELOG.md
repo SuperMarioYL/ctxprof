@@ -5,6 +5,54 @@ All notable changes to ctxprof will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] — 2026-10-24
+
+Correctness pass. Three fixes from the grill bug-hunt over the shipped v0.11.0
+source — no new features, no new Go deps, still read-only and terminal-only.
+
+### Fixed
+- **A truncated JSONL line is no longer half-parsed into a phantom turn whose
+  whole total was reported as `system` tokens.** `ParseReader`
+  (`internal/parser/session.go`) rejected a line only when it was blank or did
+  not start with `{`; every other line went straight to gjson, which parses
+  leniently instead of validating. Claude Code appends JSONL incrementally, so
+  the last line of a session that is still being written is routinely cut
+  mid-line — and such a line was not rejected: gjson returned the fields it could
+  still see, so `message.usage.input_tokens` / `output_tokens` /
+  `cache_read_input_tokens` were counted as real numbers while the missing tail
+  read as 0 and the truncated `message.content` produced no blocks. With
+  `len(blocks) == 0` the balance-preserving fallback in
+  `internal/attribute/reconcile.go` parked that turn's entire total in the
+  `system` bucket, so a 3-line fixture whose last line was cut after
+  `"cache_read_input_tokens":120000,"cache_creation_inp` printed
+  `system … 214,000 (99.3%) ~` at `105%` of window and exited 0 with no warning.
+  Lines that fail `gjson.Valid` are now skipped and counted
+  (`Session.MalformedLines` / `FirstMalformedLine`), and the CLI warns on stderr
+  from a single `parseSession` helper used by the root, `attribute`, `parse`,
+  `trend` and `compare` paths, so an incomplete read is never silent. Valid-JSON
+  meta records without a `message` keep their existing silent skip. Covered by
+  `internal/parser/session_test.go`
+  (`TestParseReader_SkipsMalformedLineAndReportsIt`, revert-verified: FAILS with
+  `Turns = 3` before the fix) and `cmd/ctxprof/main_test.go`
+  (`TestTruncatedSessionLineWarnsAndIsNotCounted`).
+- **The recorded demo's jq frame queries `.cumulative_tokens`, not the retired
+  `.total_tokens`.** `docs/demo.tape` is what `.github/workflows/demo.yml`
+  renders with vhs on every tag push into `assets/demo.gif` — the flagship visual
+  embedded in both READMEs and on ctxprof.lei6393.com. Its second frame piped the
+  JSON surface through `jq '{total: .total_tokens, …}'`, but `total_tokens` was
+  renamed to `cumulative_tokens` in v0.2 (see the 0.2.0 entry below) and
+  `internal/schema/allocation_v1.json` sets `additionalProperties:false` with no
+  such property, so the key could only ever resolve to null: the shipped gif
+  displayed `"total": null` for ten releases. The tape now queries
+  `.cumulative_tokens` and `assets/demo.gif` was re-rendered for real with vhs.
+  Covered by `cmd/ctxprof/main_test.go`
+  (`TestDemoTapeHasNoRetiredFieldOrLicenseMismatch`).
+- **The recorded demo's closing frame states Apache-2.0, not MIT.**
+  `docs/demo.tape` ended on `# six buckets, one binary, MIT — …` while the
+  repository LICENSE is the Apache License 2.0. The same MIT-vs-Apache mismatch
+  was already corrected in the plan prose at v0.8.0, so the tape was simply
+  missed; the re-rendered gif now matches the LICENSE. Covered by the same test.
+
 ## [0.11.0] — 2026-09-17
 
 Correctness pass. Four fixes from the grill bug-hunt over the shipped v0.10.0
